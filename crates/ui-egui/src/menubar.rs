@@ -303,6 +303,7 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
     match id {
         // Every language's command is checked when it is the active one.
         _ if crate::menus::language_from_command(id).is_some() => Some(crate::menus::language_from_command(id) == Some(u.language)),
+        _ if crate::classic::checked(app, id).is_some() => crate::classic::checked(app, id),
         "develop.autoSync" => Some(app.session.auto_sync),
         "view.photoCounts" => Some(u.show_counts),
         "view.secondWindow" => Some(u.second_window),

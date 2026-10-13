@@ -8,6 +8,7 @@
 
 pub mod album_picker;
 pub mod brush_live;
+pub mod classic;
 pub mod control;
 pub mod credits;
 pub mod date_picker;
@@ -505,6 +506,7 @@ impl LightcraftApp {
         }
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             if r.is_ok() {
+                classic::reconcile(self);
                 docking::reveal_command(self, id)?;
             }
             return r;
@@ -1317,6 +1319,7 @@ impl LightcraftApp {
             self.end_frame(&ctx, t0);
             return;
         }
+        classic::reconcile(self);
         // Order matters: earlier panels take the full edge (top bar spans the window; the tool strip,
         // right panels and left panel run to the bottom; the bottom bar sits between them).
         panels::topbar::show(self, ui);

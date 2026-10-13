@@ -637,6 +637,7 @@ fn display_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 }
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    super::classic::settings_row(app, ui, t);
     let system = app.system_theme(ui.ctx());
     appearance(ui, t, &mut app.ui.settings, system);
     heading(ui, t, crate::i18n::tr("Filmstrip"));

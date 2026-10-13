@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (LR-MASK-OVERLAYALL: Show All Mask Overlays shows the masks as their union) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (KEYC-MODULES: Library / Develop modules; LR-PREF-INTERFACE: Classic / Modern interface style) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -36,7 +36,7 @@ cited here still exists. Formerly docs/parity.md.
 | H. Crop & rotate (CROP) | 9 | 0 | 0 | 1 | 6/6 (100%) | 3/3 (100%) |
 | I. Remove / healing (REM) | 8 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
 | J. Red eye (EYE) | 2 | 0 | 0 | 0 | — | 1/1 (100%) |
-| K. Masking (MASK) | 13 | 5 | 5 | 0 | 7/8 (88%) | 5/5 (100%) |
+| K. Masking (MASK) | 14 | 5 | 5 | 0 | 7/8 (88%) | 6/6 (100%) |
 | L. Presets (PRE) | 6 | 0 | 1 | 1 | 2/2 (100%) | 2/2 (100%) |
 | M. Versions & history (VER) | 5 | 0 | 0 | 0 | 1/1 (100%) | 3/3 (100%) |
 | N. Copy / paste / sync (SYNC) | 5 | 0 | 0 | 0 | 3/3 (100%) | 1/1 (100%) |
@@ -52,10 +52,10 @@ cited here still exists. Formerly docs/parity.md.
 | X. Cross-cutting behaviours (BEHAV) | 23 | 6 | 1 | 1 | 8/8 (100%) | 7/10 (70%) |
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
-| Lightroom Classic extras | 34 | 16 | 35 | 8 | — | 24/26 (92%) |
-| **Total** | 408 | 52 | 72 | 35 | 193/201 (96%) | 145/157 (92%) |
+| Lightroom Classic extras | 34 | 17 | 35 | 7 | — | 24/26 (92%) |
+| **Total** | 409 | 53 | 72 | 34 | 193/201 (96%) | 146/158 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.6%** of 532 in-scope rows — P0 98.0% of 201 · P1 95.2% of 157 · P2 50.0% of 173.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.6%** of 534 in-scope rows — P0 98.0% of 201 · P1 95.3% of 158 · P2 50.0% of 174.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -427,7 +427,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-PREF-GENERAL | General settings | P0 | ✅ | `cmd:app.settings`, `cmd:app.openLibrary`, `crates/ui-egui/src/panels/settings.rs`, `crates/ui-egui/src/panels/notices.rs` | General / Import / Performance / Display / Interface tabs; app settings in ui.json (written atomically, saved when the library changes and every few seconds), library settings in prefs.json; a damaged settings file is kept as `.corrupt-<time>` and reported, an unreadable one is not overwritten that session (`library.info` → `settingsWarnings`); quitting with unsaved changes retries, then asks |
 | LR-PREF-LOCALSTORAGE | Storage & cache | P1 | ✅ | `cmd:library.preferences`, `cmd:library.clearPreviews`, `cmd:library.compact` | thumbnail cache size + clear in Settings → Performance; library location + Open Library… in General |
 | LR-PREF-ACCOUNT | Account | OOS | 🚫 | | |
-| LR-PREF-INTERFACE | Interface options | P1 | ✅ | `cmd:app.settings`, `cmd:view.appearance`, `cmd:view.theme` | Appearance Mode (Sync with System / Dark / Light; the top bar button cycles Auto, Light, Dark) with separate dark (Charcoal, Midnight) and light (Silver, Paper) themes previewed in cards; hover stars persist favorite themes, the appearance button context menu opens Interface settings and lists light favorites before dark favorites; filmstrip names/badges, grid badges (auto/always/never), square-grid names, navigator, info overlay |
+| LR-PREF-INTERFACE | Interface options | P1 | ✅ | `cmd:app.settings`, `cmd:view.appearance`, `cmd:view.theme`, `cmd:view.interface` | Appearance Mode (Sync with System / Dark / Light; the top bar button cycles Auto, Light, Dark) with separate dark (Charcoal, Midnight) and light (Silver, Paper) themes previewed in cards; hover stars persist favorite themes, the appearance button context menu opens Interface settings and lists light favorites before dark favorites; filmstrip names/badges, grid badges (auto/always/never), square-grid names, navigator, info overlay; Interface Style (Classic: Library / Develop modules; Modern: one window with a tool strip), see [classic-interface.md](classic-interface.md) |
 | LR-PREF-DISPLAY | Monitor (display) colour management | P1 | 🟡 | `cmd:app.displayProfile`, `crates/codecs/src/display.rs`, `crates/engine/src/display.rs`, `crates/ui-egui/src/panels/settings.rs`, `apps/lightcraft/src/screen_profile.rs`, `apps/lightcraft/src/colord.rs`, `docs/display-profiles.md` | Settings ▸ Display: a monitor ICC profile (matrix/TRC exactly, LUT-based through the CMS) chosen by hand, or on macOS the profile of the screen showing the window (followed across screens, #787), on Linux the profile the desktop assigns in colord (read off the UI thread every 3 s; used with one display, or several sharing one profile); the loupe, Before, Compare, hover previews and the second window render into the display's primaries (its full gamut, CPU and GPU), thumbnails and stand-ins are converted from sRGB; histogram, preview caches and exports stay sRGB; soft proofing's display gamut warning uses the display's gamut. Missing: Windows' WCS profile (needs FFI, so `unsafe`), X11 `_ICC_PROFILE`, per-monitor profiles on Linux (eframe doesn't say which monitor the window is on) |
 | LR-PREF-PERFORMANCE | GPU / performance | P1 | ✅ | `cmd:app.gpu`, `cmd:app.memoryBudget`, `cmd:app.settings` | GPU on/off (a crash while the GPU device or its kernels are built, issue #250, turns it off for the next launch), preview size (Automatic = the whole-frame loupe render at canvas size, up to 2560 px; or a 1600–5120 px size for it; zoomed views add a window at up to 100 %, issue #323), memory budget (a quarter of it is the idle per-view stage caches' share; the open photo's views are counted and reported, and cut only past four times that, the before side's and the zoom window's first — a Before/After at 1:1 on a 2800 px canvas holds about 1 GB of GPU stages, plus the one 288 MB copy of the original, which `ui.inspect` reports as `sharedSourceBytes`), thumbnail cache size in Settings |
 | LR-PREF-PEOPLE | Face recognition | P2 | 🟡 | `cmd:faces.enable`, `cmd:faces.models.list`, `cmd:faces.models.inspect`, `cmd:faces.models.install`, `cmd:faces.models.download`, `cmd:faces.models.downloads`, `cmd:faces.models.downloadCancel`, `cmd:faces.models.remove`, `cmd:faces.models.select`, `cmd:dialog.faceModel`, `crates/faces/src/lib.rs`, `crates/ui-egui/src/panels/faces.rs` | Settings ▸ Faces: an off-by-default toggle and the face model list. Models are opt-in and never bundled, the 232 KB YuNet detector included. Press Download (terms first; then a pinned address, size and SHA-256 checked, fetched over pure-Rust https with `lightcraft-fetch`), or add any `.onnx` by picking or dropping it: it is recognised by hash or described from its shape, shows its licence terms and training-data note, runs a self-test, and installs only after an "I accept" box; an installed model is chosen and recognition switched on at once (the newest wins, each model keeps its own embedding cache). Non-commercial models are add-by-file only, never offered for download. Suggestions of names run on the shared pure-Rust CPU interpreter (`crates/faces/src/net.rs`, `crates/faces/src/runtime.rs`; bounded im2col/GEMM, checked ONNX shapes/operators; no external inference runtime; 40 public crops agree within 2.1e-6, one-thread SFace 34–36 ms / AuraFace 233–252 ms, see docs/faces.md) in a background worker and are never applied automatically. Thresholds are starting points calibrated on busts, not yet on live faces; the Recognise faces switch is off until a recognition model is chosen and installed (`faces.enable {enabled: true}` refuses otherwise; removing the last recogniser switches it off), issue #678 |
@@ -765,7 +765,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-WEB-OUTPUT | Web gallery output | OOS | 🚫 | | |
 | LRC-WEB-UPLOAD | Web gallery upload | OOS | 🚫 | | |
 | KEYC-PANELS | Classic panel keys (Tab, ⇧Tab, T, F5–F8, solo) | P2 | ⬜ | | |
-| KEYC-MODULES | Classic module switching (⌘⌥1–7) | P2 | 🚫 | | no modules in LightCraft |
+| KEYC-MODULES | Classic module switching (⌘⌥1–7) | P2 | 🟡 | `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/classic.rs`, `docs/classic-interface.md` | ⌘⌥1 Library, ⌘⌥2 Develop; the module also follows the view and the panel beside it. Map, Book, Slideshow, Print and Web have no module (⌘⌥3–7) |
 | KEYC-VIEWS | Classic view keys (E, G, C, N, L, F, I, ⇧R, ⌘⌥0) | P2 | 🟡 | `cmd:view.photoGrid`, `cmd:view.zoom100` | G works; E opens Edit (not loupe); no compare/survey/lights-out/screen modes |
 | KEYC-SECONDWINDOW | Classic secondary-window keys | P2 | ⬜ | | |
 | KEYC-CATALOG | Classic photo/catalog keys (⇧⌘I, ⌘', ⌘R, F2, ⌫, ⇧⌘E…) | P2 | ✅ | `cmd:library.import`, `cmd:photo.delete`, `cmd:photo.virtualCopy`, `cmd:app.showInFinder`, `cmd:dialog.rename`, `cmd:photo.editInExternal` | ⇧⌘I add, ⌘' virtual copy, ⌘R show in Finder, F2 rename, ⌫ delete, ⇧⌘E external editor |
@@ -790,6 +790,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-13 | patch | LR-MASK-OVERLAYALL: the masks are shown as their union; one after another, every view but Color left only the last mask (its test failed on main); status unchanged (✅) |
+| 2026-10-13 | minor | KEYC-MODULES 🚫 → 🟡: `module.library` (⌘⌥1) and `module.develop` (⌘⌥2); LR-PREF-INTERFACE: `view.interface` chooses the Classic or Modern interface style (CLASSIC.1, [classic-interface.md](classic-interface.md)) |
 | 2026-10-11 | minor | LR-MERGE-HDR: HDR and panorama merges of raws without colour matrices (CR2, NEF, ARW…) write the colour they open with as DNG tags (issue #965); status unchanged |
 | 2026-10-12 | minor | LR-META-XMP: Read Metadata from File no longer auto-writes the sidecar it has just read, which added `lc:settings` and hid another app's later `crs:` edits (#934); status unchanged (✅) |
 | 2026-10-12 | patch | LR-IMP-CAMERA-COVERAGE: CR2 white level from the active area, not the saturated masked rows above it (issue #1272); status unchanged (🟡) |

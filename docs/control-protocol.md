@@ -109,6 +109,14 @@ Auto → Light → Dark → Auto, like the top bar's `icon:appearance` button) a
 Both reply `{mode, darkTheme, lightTheme}`; the same values are `settings.appearanceMode`,
 `settings.darkTheme` and `settings.lightTheme` in `ui.set`. Auto follows the system (on Linux the
 XDG desktop portal, watched for changes rather than polled) and is dark when the system says nothing.
+
+The interface style is `view.interface {style?: "classic" | "modern"}` (no style: the other one), replying
+`{interface, module}`. `module.library` and `module.develop` switch the module in either style and reply
+`{module}`. `ui.inspect` → `ui.classic` is `{interface, module, libraryView, libraryRight}` (`interface` is `null`
+until a style is chosen, which draws as Modern), and `ui.set {"classic": {"interface": "classic"}}` sets the style
+too. The module follows the view and the panel beside
+it, so scripts written for the Modern style keep working: see [classic-interface.md](classic-interface.md).
+
 Mask brushing uses the UI command `tool.brush` through `engine.execute`. With `{}` it activates
 painting on the current mask. `{"new": true}` creates a separate brush mask; `{"op": "add"}` or
 `{"op": "subtract"}` appends a brush component to the selected mask. Creating either starts in

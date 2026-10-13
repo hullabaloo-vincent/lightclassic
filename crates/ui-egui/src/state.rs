@@ -499,6 +499,8 @@ pub struct UiState {
     pub view: ViewMode,
     pub left_panel: bool,
     pub right: RightPanel,
+    /// The interface style (Classic or Modern) and the Classic module showing.
+    pub classic: crate::classic::ClassicState,
     /// Widths of the left sidebar and of the right panel in points (dragging their inner edge
     /// resizes them; within [`LEFT_WIDTH`] / [`RIGHT_WIDTH`]).
     pub left_width: f32,
@@ -1038,6 +1040,7 @@ impl Default for UiState {
             left_width: LEFT_WIDTH.default,
             right_width: RIGHT_WIDTH.default,
             right: RightPanel::Edit,
+            classic: Default::default(),
             presets: false,
             preset_thumbs: false,
             filmstrip: true,
