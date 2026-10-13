@@ -1,13 +1,12 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (Develop's left column: Navigator, Presets, Snapshots, History)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (the desktop and web apps start in the Classic style)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
 
 - **Classic**: modules (Library | Develop), panels stacked down both sides, a filmstrip across the window. This is
-  how Lightroom Classic is laid out. It will be the default of this fork's desktop and web apps (CLASSIC.5); until
-  then it is chosen by hand.
+  how Lightroom Classic is laid out, and it is what this fork's desktop and web apps start in.
 - **Modern**: one window with a tool strip and one panel at a time, as the cloud Lightroom desktop app is laid out.
   It is what upstream LightCraft draws, and it stays intact: the library crate's own default is Modern, so its tests
   and embedders are unaffected.
@@ -23,7 +22,16 @@ the style.
 | CLASSIC.2 | Classic frame: module picker, side columns, full-width filmstrip | done |
 | CLASSIC.3 | Develop right panels (Histogram, tools, Basic … Calibration) | done |
 | CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | done |
-| CLASSIC.5 | Desktop and web apps start in Classic | next |
+| CLASSIC.5 | Desktop and web apps start in Classic | done |
+
+## Which style an app starts in
+
+| Where | Starts in | Why |
+|---|---|---|
+| Desktop app, web app | Classic, the first time; after that, whatever was last chosen | `classic::host_default`, called on the settings they start with. It sets Classic only where no style was ever chosen (new settings, or a settings file from before the style existed), together with what Classic shows when first opened: both columns, and Presets and History unfolded under the Navigator. A choice of Modern is kept |
+| `lightcraft-cli snapshot`, `lightcraft-cli mcp` (headless), tests, embedders | Modern | the library crate's own default (`interface: null`). Send `view.interface {"style": "classic"}` first to draw Classic |
+
+The choice is saved with the other UI settings (`ui.json` → `classic.interface`).
 
 ## The window
 
@@ -174,7 +182,8 @@ inline (the Auto row, the profile row, white balance, the vignette style, the op
 Tripwires stand in for merge conflicts. The frame matches on `ViewMode` without a wildcard, so a view added
 upstream fails to compile until it is placed in the Classic frame. And
 `every_slider_of_the_edit_and_crop_panels_is_in_the_classic_panels` fails when the Modern Edit or Crop panel gains a
-slider that the Classic panels lack. The frame's tests also assert the Modern frame is drawn as before.
+slider that the Classic panels lack. The frame's tests also assert the Modern frame is drawn as before, and `tests/classic_accessibility.rs` walks the screen-reader tree of both modules, every Develop
+tool and every panel.
 
 The Presets panel is the Modern one drawn whole and moved up by its title row, which is clipped away under the
 Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes that row's height,
@@ -184,6 +193,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | CLASSIC.5: the desktop and web apps start in Classic; accessibility audit of the Classic layout |
 | 2026-10-13 | minor | CLASSIC.4: Develop's left column: Navigator, Presets, Snapshots, History |
 | 2026-10-13 | minor | CLASSIC.3: Develop's panels in Classic's order, their folding and switches, `view.classicPanel` |
 | 2026-10-13 | minor | CLASSIC.2: the Classic window frame; a grid and the filmstrip share their thumbnails |

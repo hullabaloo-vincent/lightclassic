@@ -875,6 +875,8 @@ fn main() -> eframe::Result {
                     app.ui.settings.gpu = false;
                     app.notices.push(notice);
                 }
+                // also after the snapshot: the style the app starts in where none was ever chosen is saved as one
+                lightcraft_ui_egui::classic::host_default(&mut app.ui);
                 if let Some(port) = control_port {
                     let rx = control_server::start(port, cc.egui_ctx.clone());
                     app = app.with_control(rx);
@@ -1063,6 +1065,38 @@ mod tests {
                 assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1, "a future layout does not rename or replace the settings file");
             }
         }
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// The app starts in the Classic interface style where no style was ever chosen (settings from before the style
+    /// existed, or none), and a style that was chosen, Modern too, is still the one after a save and a restart.
+    #[test]
+    fn the_interface_style_starts_classic_and_a_choice_survives_a_restart() {
+        use lightcraft_ui_egui::classic::{InterfaceStyle, host_default, style};
+        let d = dir("interface-style");
+        let path = d.join("ui.json");
+        let mut before = serde_json::to_value(UiState::default()).unwrap();
+        assert!(before.as_object_mut().unwrap().remove("classic").is_some(), "the style is part of the saved settings");
+        std::fs::write(&path, serde_json::to_vec(&before).unwrap()).unwrap();
+        let (loaded, warning, _) = load_prefs_at(&path, false);
+        assert!(warning.is_none(), "{warning:?}");
+        let mut ui = loaded.unwrap();
+        assert_eq!(ui.classic.interface, None);
+        host_default(&mut ui);
+        assert_eq!(style(&ui), InterfaceStyle::Classic);
+        assert!(ui.left_panel, "Classic starts with its left column");
+
+        // the choice is saved with the rest, and the next start leaves it alone
+        let mut writer = PrefsWriter { path: Some(path.clone()), ..Default::default() };
+        writer.save_ui(&ui, false).unwrap();
+        assert_eq!(load_prefs_at(&path, false).0.unwrap().classic.interface, Some(InterfaceStyle::Classic));
+        ui.classic.interface = Some(InterfaceStyle::Modern);
+        ui.left_panel = false;
+        writer.save_ui(&ui, false).unwrap();
+        let mut again = load_prefs_at(&path, false).0.unwrap();
+        host_default(&mut again);
+        assert_eq!(style(&again), InterfaceStyle::Modern);
+        assert!(!again.left_panel);
         std::fs::remove_dir_all(d).unwrap();
     }
 

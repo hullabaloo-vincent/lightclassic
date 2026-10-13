@@ -65,6 +65,7 @@ fn the_library_crate_starts_modern_and_a_host_starts_classic() {
     host_default(&mut ui);
     assert_eq!(style(&ui), InterfaceStyle::Classic);
     assert!(ui.left_panel, "Classic starts with its left panel");
+    assert!(super::LeftPanel::Presets.open(&ui) && super::LeftPanel::History.open(&ui), "and with Presets and History unfolded in it");
 
     // a style the user chose survives saving, loading and the host's default
     ui.classic.interface = Some(InterfaceStyle::Modern);

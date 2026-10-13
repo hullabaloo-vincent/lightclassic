@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (Classic interface style: Develop's left column) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (the apps start in the Classic interface style; its accessibility audit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 How LightCraft's interaction compares with Lightroom's: views, panels, tools and handles, modifier
 keys, shortcuts, zoom, context menus and feel. Rows for individual menu items and shortcuts live in
@@ -105,6 +105,7 @@ left panel, canvas, right panel, which is sensible but not tuned).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | patch | The desktop and web apps start in the Classic interface style; the AccessKit audit also covers both Classic modules, every Develop tool and every panel (CLASSIC.5); percentages unchanged |
 | 2026-10-13 | minor | Layout row: Develop's left column in the Classic interface style (CLASSIC.4) |
 | 2026-10-13 | minor | Layout row: Develop in the Classic interface style is Classic's panel set (CLASSIC.3) |
 | 2026-10-13 | minor | Layout row: the Classic interface style draws its own frame (module picker, columns, full-width filmstrip; CLASSIC.2); percentages unchanged until its Develop panels land |

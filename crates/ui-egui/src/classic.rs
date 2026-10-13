@@ -294,13 +294,16 @@ pub fn active(app: &LightcraftApp) -> bool {
     style(&app.ui) == InterfaceStyle::Classic
 }
 
-/// The application's starting style where none was ever chosen: Classic, with the left panel it always shows. A
-/// style the user picked (Modern included) is left alone. Hosts call it on the state they start with; the library
+/// The application's starting style where none was ever chosen: Classic, as Classic looks when first opened (both
+/// columns, with Presets and History unfolded under the Navigator). A style the user picked (Modern included) is
+/// left alone, and so is everything else from then on. Hosts call it on the state they start with; the library
 /// crate's own default stays Modern, which is what its tests and embedders build on.
 pub fn host_default(ui: &mut UiState) {
     if ui.classic.interface.is_none() {
         ui.classic.interface = Some(InterfaceStyle::Classic);
         ui.left_panel = true;
+        LeftPanel::Presets.set_open(ui, true);
+        LeftPanel::History.set_open(ui, true);
     }
 }
 

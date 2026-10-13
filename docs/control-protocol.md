@@ -113,8 +113,9 @@ XDG desktop portal, watched for changes rather than polled) and is dark when the
 The interface style is `view.interface {style?: "classic" | "modern"}` (no style: the other one), replying
 `{interface, module}`. `module.library` and `module.develop` switch the module in either style and reply
 `{module}`. `ui.inspect` → `ui.classic` is `{interface, module, libraryView, libraryRight}` (`interface` is `null`
-until a style is chosen, which draws as Modern), and `ui.set {"classic": {"interface": "classic"}}` sets the style
-too. In Classic Develop, `view.classicPanel {panel, open?}` folds a panel (`histogram`, `basic`, `toneCurve`, `hsl`,
+until a style is chosen, which draws as Modern; the desktop and web apps choose Classic the first time they start,
+while `lightcraft-cli snapshot` and the headless MCP server start Modern), and
+`ui.set {"classic": {"interface": "classic"}}` sets the style too. In Classic Develop, `view.classicPanel {panel, open?}` folds a panel (`histogram`, `basic`, `toneCurve`, `hsl`,
 `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration` on the right; `navigator`,
 `presets`, `snapshots`, `history` on the left) and replies `{panel, open}`; the
 headers are the widgets `classicPanel:<id>`, their switches `classicSwitch:<id>`, and the sliders keep their ids

@@ -362,6 +362,10 @@ cargo run --release -p lightcraft-cli -- render photo.jpg -o out.jpg --set light
 cargo xtask ci                                          # fmt, clippy, tests, layering, wasm checks
 ```
 
+LightCraft opens in the **Classic** interface style: Library and Develop modules, panels stacked down both sides and
+a filmstrip across the window, as in Lightroom Classic. View ▸ Classic Interface switches to the Modern single-window
+layout shown in the screenshots here; the choice is remembered. See [docs/classic-interface.md](docs/classic-interface.md).
+
 CI defaults to line-table debug information and one build job per 1.5 GB of RAM
 available when it starts (at most one per CPU; 4 if memory can't be read), so an
 8 GB machine with 6 GB free builds with 4, and a busy machine with little free

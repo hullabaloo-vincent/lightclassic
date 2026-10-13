@@ -438,6 +438,8 @@ impl WebApp {
             app.ui = ui;
         }
         app.ui = app.ui.sanitized();
+        // the style the app starts in where none was ever chosen
+        lightcraft_ui_egui::classic::host_default(&mut app.ui);
         app.library_problem = problem;
         let n = opts.workers.unwrap_or_else(|| {
             let cores = window().map_or(1, |w| w.navigator().hardware_concurrency() as usize);
