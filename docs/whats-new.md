@@ -7,8 +7,10 @@
   Classic does: a Library | Develop module picker, panels down both sides, the toolbar under the photo and a
   filmstrip across the whole window, in the Library's grids too. ⌘⌥1 and ⌘⌥2 switch modules, and the keys there
   already land where you expect: G, N and ⇧C go to the Library; E, C, H and M open the photo in Develop.
-- Develop shows its tools (Crop, Remove, Red Eye, Masking) in a row above the panels. The panels themselves are still
-  the Edit panel's sections; Classic's own (Basic, Tone Curve, HSL…) come next.
+- Develop has Classic's panels in Classic's order: Histogram, the tools (Crop, Remove, Red Eye, Masking) in a row
+  under it, then Basic, Tone Curve, HSL / Color, Color Grading, Detail, Lens Corrections, Transform, Effects and
+  Calibration. A click on a header folds its panel; Detail, Lens Corrections, Transform and Calibration have a switch
+  that turns their adjustments off without losing them. A tool opens under the tool row, with the panels still below.
 - The Modern arrangement is unchanged, and remains the one LightCraft starts in for now.
 ## 2026-10-13
 

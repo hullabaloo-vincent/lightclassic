@@ -2,7 +2,8 @@
 //!
 //! Classic is the Lightroom Classic arrangement: a module picker (Library | Develop), panels stacked down both
 //! sides and a filmstrip across the window. Modern is the single window with a tool strip. This file holds the state
-//! and its commands (`view.interface`, `module.library`, `module.develop`); the drawing is in `panels/classic`.
+//! and its commands (`view.interface`, `module.library`, `module.develop`, `view.classicPanel`); the drawing is in
+//! `panels/classic` and, for the Develop panels, `panels/edit/classic.rs`.
 //!
 //! The module is derived from the state every other command already sets, so nothing means something different per
 //! style: a grid, Compare, Survey or People is the Library; the loupe with an edit tool beside it is Develop
@@ -79,6 +80,127 @@ impl Module {
             Self::Develop => "module.develop",
         }
     }
+}
+
+/// A panel of the Classic Develop column, in Classic's order ([`Self::ALL`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DevelopPanel {
+    Basic,
+    ToneCurve,
+    Hsl,
+    ColorGrading,
+    Detail,
+    LensCorrections,
+    Transform,
+    Effects,
+    Calibration,
+}
+
+impl DevelopPanel {
+    pub const ALL: [Self; 9] = [
+        Self::Basic,
+        Self::ToneCurve,
+        Self::Hsl,
+        Self::ColorGrading,
+        Self::Detail,
+        Self::LensCorrections,
+        Self::Transform,
+        Self::Effects,
+        Self::Calibration,
+    ];
+
+    /// Its name in `view.classicPanel` and in widget ids (`classicPanel:{id}`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Basic => "basic",
+            Self::ToneCurve => "toneCurve",
+            Self::Hsl => "hsl",
+            Self::ColorGrading => "colorGrading",
+            Self::Detail => "detail",
+            Self::LensCorrections => "lensCorrections",
+            Self::Transform => "transform",
+            Self::Effects => "effects",
+            Self::Calibration => "calibration",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Basic => "Basic",
+            Self::ToneCurve => "Tone Curve",
+            Self::Hsl => "HSL / Color",
+            Self::ColorGrading => "Color Grading",
+            Self::Detail => "Detail",
+            Self::LensCorrections => "Lens Corrections",
+            Self::Transform => "Transform",
+            Self::Effects => "Effects",
+            Self::Calibration => "Calibration",
+        }
+    }
+
+    /// Where its open state lives in [`UiState::open_sections`]. A panel that stands for an Edit section shares that
+    /// section's entry, so it is open in one style when it was in the other, and the Edit sections' commands
+    /// (`section.light` … `section.optics`, ⌘1–5) fold it too.
+    pub fn open_id(self) -> &'static str {
+        match self {
+            Self::Basic => "light",
+            Self::ToneCurve => "toneCurve",
+            Self::Hsl => "color",
+            Self::ColorGrading => "colorGrading",
+            Self::Detail => "detail",
+            Self::LensCorrections => "optics",
+            Self::Transform => "transform",
+            Self::Effects => "effects",
+            Self::Calibration => "calibration",
+        }
+    }
+
+    /// The develop sections its controls belong to (`develop.sectionEnabled`): what switching the panel off turns
+    /// off, and what must be on for all of it to take effect.
+    pub fn sections(self) -> &'static [&'static str] {
+        match self {
+            Self::Basic => &["light", "color", "effects"],
+            Self::ToneCurve => &["light"],
+            Self::Hsl | Self::ColorGrading => &["color"],
+            Self::Detail => &["detail"],
+            Self::LensCorrections => &["optics"],
+            Self::Transform => &["geometry"],
+            Self::Effects => &["effects"],
+            Self::Calibration => &["calibration"],
+        }
+    }
+
+    /// Has a switch of its own: the panels whose controls are a whole develop section. The others share a section
+    /// with another panel (Texture, Clarity and Dehaze are Effects' in the pipeline and Basic's on screen), so a
+    /// switch on one would silently turn off part of the other; they only show one to turn a section back on.
+    pub fn has_switch(self) -> bool {
+        matches!(self, Self::Detail | Self::LensCorrections | Self::Transform | Self::Calibration)
+    }
+}
+
+/// `view.classicPanel {panel, open?}`: fold or unfold a panel of the Classic Develop column (`histogram`, or a
+/// [`DevelopPanel::id`]); without `open`, the other state.
+fn panel_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
+    let known = || std::iter::once("histogram").chain(DevelopPanel::ALL.map(DevelopPanel::id)).collect::<Vec<_>>().join("|");
+    let name = p.get("panel").and_then(Value::as_str).ok_or_else(|| format!("view.classicPanel: `panel` is one of {}", known()))?;
+    let open = match p.get("open") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(open)) => Some(*open),
+        Some(_) => return Err("view.classicPanel: `open` is true or false".to_string()),
+    };
+    if name == "histogram" {
+        app.ui.histogram = open.unwrap_or(!app.ui.histogram);
+        return Ok(json!({"panel": name, "open": app.ui.histogram}));
+    }
+    let panel = DevelopPanel::ALL
+        .into_iter()
+        .find(|panel| panel.id() == name)
+        .ok_or_else(|| format!("view.classicPanel: unknown panel `{name}` ({})", known()))?;
+    let id = panel.open_id();
+    if open.unwrap_or(!app.ui.section_open(id)) != app.ui.section_open(id) {
+        app.ui.toggle_section(id);
+    }
+    Ok(json!({"panel": name, "open": app.ui.section_open(id)}))
 }
 
 /// What [`UiState`] keeps for the interface style.
@@ -196,6 +318,7 @@ pub(crate) fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "module.library" => Module::Library,
         "module.develop" => Module::Develop,
         "view.interface" => return Some(interface(app, p)),
+        "view.classicPanel" => return Some(panel_command(app, p)),
         _ => return None,
     };
     enter(app, module);

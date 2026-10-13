@@ -56,6 +56,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("module.library", "Library", Some("Cmd+Alt+1"), "Window"),
     ("module.develop", "Develop", Some("Cmd+Alt+2"), "Window"),
     ("view.interface", "Classic Interface", None, "View"),
+    ("view.classicPanel", "Show Classic Panel", None, ""),
     ("modelSetup.cancel", "Cancel Pending Photo Action", None, ""),
     ("view.photoGrid", "Photo Grid", None, "View"),
     ("view.squareGrid", "Square Grid", None, "View"),

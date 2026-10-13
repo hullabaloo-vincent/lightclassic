@@ -114,7 +114,10 @@ The interface style is `view.interface {style?: "classic" | "modern"}` (no style
 `{interface, module}`. `module.library` and `module.develop` switch the module in either style and reply
 `{module}`. `ui.inspect` → `ui.classic` is `{interface, module, libraryView, libraryRight}` (`interface` is `null`
 until a style is chosen, which draws as Modern), and `ui.set {"classic": {"interface": "classic"}}` sets the style
-too. The module follows the view and the panel beside
+too. In Classic Develop, `view.classicPanel {panel, open?}` folds a panel (`histogram`, `basic`, `toneCurve`, `hsl`,
+`colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`) and replies `{panel, open}`; the
+headers are the widgets `classicPanel:<id>`, their switches `classicSwitch:<id>`, and the sliders keep their ids
+(`slider:light.exposure`). The module follows the view and the panel beside
 it, so scripts written for the Modern style keep working: see [classic-interface.md](classic-interface.md).
 
 Mask brushing uses the UI command `tool.brush` through `engine.execute`. With `{}` it activates

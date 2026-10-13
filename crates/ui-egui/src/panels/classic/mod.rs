@@ -62,10 +62,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     if right {
         let dragged = super::resizable_side(ui, false, "right_panel", frame, app.ui.right_width, RIGHT_WIDTH, 0.0, |ui| {
-            if app.ui.classic.module == Module::Develop {
-                tool_strip(app, ui, &t);
+            // Develop's own column, except while a panel that takes the whole of it is open (the profile browser,
+            // and Versions and History until they move to the left column)
+            let whole = matches!(app.ui.right, RightPanel::Profiles | RightPanel::Versions | RightPanel::Activity);
+            if app.ui.classic.module == Module::Develop && !whole {
+                super::edit::classic::show(app, ui);
+            } else {
+                super::right::show(app, ui);
             }
-            super::right::show(app, ui);
         });
         if let Some(width) = dragged {
             app.ui.right_width = width;
@@ -147,9 +151,9 @@ fn module_button(ui: &mut egui::Ui, t: &Tokens, module: Module, active: bool) ->
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// Develop's tools in a row above its panels (`icon:crop`, `icon:remove`, `icon:redeye`, `icon:masking`): a tool's
-/// button opens its panel in place of the develop panels, and again puts it away.
-fn tool_strip(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+/// Develop's tools in a row under the histogram (`icon:crop`, `icon:remove`, `icon:redeye`, `icon:masking`): a tool's
+/// button opens its panel under the row, above the develop panels, and again puts it away.
+pub(super) fn tool_strip(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let has_photo = app.session.active().is_some();
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), TOOL_STRIP_H), Sense::hover());
     ui.painter().rect_filled(r, 0.0, t.chrome);

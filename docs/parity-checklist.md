@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (LRC-UI-MODULEPICKER: the Classic window frame) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (LRC-DEV-PANELS: Develop's panels in Classic's order) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -52,10 +52,10 @@ cited here still exists. Formerly docs/parity.md.
 | X. Cross-cutting behaviours (BEHAV) | 23 | 6 | 1 | 1 | 8/8 (100%) | 7/10 (70%) |
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
-| Lightroom Classic extras | 34 | 18 | 35 | 7 | — | 24/27 (89%) |
-| **Total** | 409 | 54 | 72 | 34 | 193/201 (96%) | 146/159 (92%) |
+| Lightroom Classic extras | 34 | 19 | 35 | 7 | — | 24/28 (86%) |
+| **Total** | 409 | 55 | 72 | 34 | 193/201 (96%) | 146/160 (91%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.5%** of 535 in-scope rows — P0 98.0% of 201 · P1 95.0% of 159 · P2 50.0% of 174.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.4%** of 536 in-scope rows — P0 98.0% of 201 · P1 94.7% of 160 · P2 50.0% of 174.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -718,6 +718,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-DEV-SOFTPROOF | Soft proofing | P2 | 🟡 | `cmd:view.softProof`, `crates/pipeline/src/output.rs` (`Proof`), `crates/ui-egui/src/panels/edit.rs` (`soft_proofing`) | S in the loupe (in grids S stays Expand/Collapse Stack): paper-white surround and "Proof Preview", proof profile (sRGB / Display P3 / Adobe RGB / ProPhoto / Rec. 2020), destination (red) and display (blue) gamut warnings (the display's gamut is the monitor profile's, `cmd:app.displayProfile`, else sRGB), Create Proof Copy (a named virtual copy). printer / paper ICC profiles can be loaded as the proof profile (size-capped, the last few kept), with rendering intent (Perceptual / Relative Colorimetric), Simulate Paper & Ink and a device-gamut warning (`crates/codecs/src/proof.rs`, `crates/engine/src/proof.rs`) |
 | LRC-DEV-AUTOSYNC | Sync / auto sync / paste previous | P1 | ✅ | `cmd:develop.sync`, `cmd:develop.autoSync`, `cmd:develop.pastePrevious` | Edit ▸ Sync Settings / Auto Sync (⌥⇧⌘A): only the changed settings carry over, one undo step, slider drags sync on release, spots / red eye stay per photo; Edit panel banner |
 | LRC-DEV-MATCHEXP | Match total exposures | P2 | ✅ | `cmd:develop.matchExposure` | Photo ▸ Match Total Exposures: the selected photos' Exposure set so shutter × ISO ÷ aperture² plus the slider matches the active photo's |
+| LRC-DEV-PANELS | Develop panel set in Classic's order | P1 | 🟡 | `cmd:view.classicPanel`, `cmd:develop.sectionEnabled`, `crates/ui-egui/src/panels/edit/classic.rs`, `docs/classic-interface.md` | Classic interface style: Histogram, the tool strip, Basic, Tone Curve, HSL / Color, Color Grading, Detail, Lens Corrections, Transform, Effects, Calibration, each folded by its header, with the Edit panel's own controls. Switches on Detail, Lens Corrections, Transform and Calibration only; no solo mode, no all-colours HSL view, no lens profile picker, no process-version menu |
 | LRC-DEV-CALIB | Calibration panel | P1 | ✅ | `ctl:calibration.*` | |
 | LRC-DEV-TAT | Targeted adjustment tools | P1 | ✅ | `cmd:develop.targeted` (`target`: curve / hue / sat / lum) | |
 | LRC-DEV-DEFAULTS | Per-camera raw defaults | P1 | ✅ | `cmd:library.preferences` (`camera`, `import.perCamera`), `crates/ui-egui/src/panels/settings.rs` | Settings → Import: raw default and per-camera presets |
@@ -764,7 +765,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-WEB-IMAGEINFO | Web gallery image info | OOS | 🚫 | | |
 | LRC-WEB-OUTPUT | Web gallery output | OOS | 🚫 | | |
 | LRC-WEB-UPLOAD | Web gallery upload | OOS | 🚫 | | |
-| LRC-UI-MODULEPICKER | Module picker and Classic window frame | P1 | 🟡 | `cmd:view.interface`, `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/panels/classic/mod.rs`, `docs/classic-interface.md` | Classic interface style: a Library / Develop picker under the top bar, columns on both sides, the toolbar under the photo and the filmstrip across the window (beside the grids too, sharing their thumbnails). Develop still shows the Modern Edit panel with the tools above it, and the Library's left column; no Map, Book, Slideshow, Print or Web module |
+| LRC-UI-MODULEPICKER | Module picker and Classic window frame | P1 | 🟡 | `cmd:view.interface`, `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/panels/classic/mod.rs`, `docs/classic-interface.md` | Classic interface style: a Library / Develop picker under the top bar, columns on both sides, the toolbar under the photo and the filmstrip across the window (beside the grids too, sharing their thumbnails). Develop's left column is still the Library's; no Map, Book, Slideshow, Print or Web module |
 | KEYC-PANELS | Classic panel keys (Tab, ⇧Tab, T, F5–F8, solo) | P2 | ⬜ | | |
 | KEYC-MODULES | Classic module switching (⌘⌥1–7) | P2 | 🟡 | `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/classic.rs`, `docs/classic-interface.md` | ⌘⌥1 Library, ⌘⌥2 Develop; the module also follows the view and the panel beside it. Map, Book, Slideshow, Print and Web have no module (⌘⌥3–7) |
 | KEYC-VIEWS | Classic view keys (E, G, C, N, L, F, I, ⇧R, ⌘⌥0) | P2 | 🟡 | `cmd:view.photoGrid`, `cmd:view.zoom100` | G works; E opens Edit (not loupe); no compare/survey/lights-out/screen modes |
@@ -790,6 +791,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | LRC-DEV-PANELS added (🟡): the Classic interface style shows Develop as Classic's panels, built from the Edit panel's controls (CLASSIC.3); LRC-UI-MODULEPICKER note updated |
 | 2026-10-13 | minor | LRC-UI-MODULEPICKER added (🟡): the Classic interface style draws its own frame, with a module picker, side columns and a filmstrip across the window (CLASSIC.2) |
 | 2026-10-13 | patch | LR-MASK-OVERLAYALL: the masks are shown as their union; one after another, every view but Color left only the last mask (its test failed on main); status unchanged (✅) |
 | 2026-10-13 | minor | KEYC-MODULES 🚫 → 🟡: `module.library` (⌘⌥1) and `module.develop` (⌘⌥2); LR-PREF-INTERFACE: `view.interface` chooses the Classic or Modern interface style (CLASSIC.1, [classic-interface.md](classic-interface.md)) |
