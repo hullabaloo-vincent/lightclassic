@@ -30,7 +30,9 @@ use lightcraft_raw::{
 /// states, for every make (#778).
 /// 4: a tone curve from black-and-white camera JPEGs (#577).
 /// 5: dark JPEG luminance pairs for the camera toe (#1307).
-pub const LOOK_VERSION: u32 = 5;
+/// 6: dark coloured pixels count as coloured, a partial look whose linear error a few bright pixels hold, and Canon
+/// camera JPEGs read in the colour space the maker note states.
+pub const LOOK_VERSION: u32 = 6;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CameraLook {
@@ -553,7 +555,8 @@ pub(crate) fn profile_pairs(raw: &RawImage, bytes: &[u8]) -> Option<Vec<([f64; 3
     let to_camera = transform.matrix.inverse()?;
     // clipped sensor pixels don't record the scene's colour (see `fit_look`)
     let sensor = without_clipped(&sensor, &clipped).unwrap_or(sensor);
-    let (pairs, _) = collect_pairs(&sensor, &reference, 0.05, None)?;
+    // (the spread alone, as before dark coloured pixels counted: a pooled profile is not yet measured with them)
+    let (pairs, _) = collect_pairs(&sensor, &reference, Coloured::Spread(COLOUR_SPREAD), None)?;
     Some(pairs.into_iter().map(|(x, y)| (to_camera.apply(x), y)).collect())
 }
 
@@ -619,13 +622,45 @@ fn local_contrast(image: &Rgb32f, i: usize) -> f32 {
     if hi.is_finite() { hi / lo.max(1e-4) } else { f32::INFINITY }
 }
 
+/// Linear channel spread above which a camera JPEG pixel counts as coloured when a colour matrix is learnt from the
+/// photo ([`Coloured::Learnable`]).
+const COLOUR_SPREAD: f32 = 0.05;
+
+/// ...or, for a pixel too dark to reach that spread, this share of its brightest channel. A spread measures
+/// brightness times saturation: 0.05 is a tenth of a pixel whose brightest channel is 0.5, 0.28 of one at 0.18, and
+/// more than a pixel below 0.05 has. A dim interior whose every pixel is a saturated gold or red therefore counted
+/// as colourless (an EOS Rebel T5 church ceiling at ISO 3200: one pair in 635 had the spread, all 635 a saturation
+/// above 0.4), no colour was learnt from it and it rendered grey-brown. 0.3 is what the spread asks at 0.17, just
+/// below mid-grey: a darker pixel needs that saturation, a brighter one the spread as before.
+const DARK_COLOUR_SATURATION: f32 = 0.3;
+
+/// What makes a camera JPEG pixel count as coloured in [`collect_pairs`], which needs one in twenty.
+#[derive(Clone, Copy, Debug)]
+enum Coloured {
+    /// Its channels are further apart than this (linear).
+    Spread(f32),
+    /// It shows enough colour to learn a colour matrix from: [`COLOUR_SPREAD`], or [`DARK_COLOUR_SATURATION`].
+    Learnable,
+}
+
+impl Coloured {
+    fn is(self, pixel: [f32; 3]) -> bool {
+        let min = pixel.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = pixel.iter().copied().fold(0.0, f32::max);
+        match self {
+            Coloured::Spread(spread) => max - min > spread,
+            Coloured::Learnable => max - min > COLOUR_SPREAD || max - min > DARK_COLOUR_SATURATION * max,
+        }
+    }
+}
+
 /// Training pairs (sensor → JPEG, unclipped midtones) and the wider set including highlights
-/// (for the chroma curve); `None` when too few, or the photo has too little colour. With
+/// (for the chroma curve); `None` when too few, or the photo has too little colour (`coloured`). With
 /// `edge_limit`, pixels whose 3×3 neighbourhood in either proxy spans a larger luminance ratio
 /// are left out: there a small geometric mismatch between the raw and its JPEG pairs unrelated
 /// colours (see [`EDGE_CONTRAST`]).
 type Pairs = Vec<([f64; 3], [f64; 3])>;
-fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f, min_chroma: f32, edge_limit: Option<f32>) -> Option<(Pairs, Pairs)> {
+fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f, coloured: Coloured, edge_limit: Option<f32>) -> Option<(Pairs, Pairs)> {
     if (sensor.width, sensor.height) != (reference.width, reference.height) || sensor.data.len() != reference.data.len() {
         return None;
     }
@@ -647,9 +682,7 @@ fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f, min_chroma: f32, edge_limi
         if !colour_pair(*input, *output) {
             continue;
         }
-        let min = output.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = output.iter().copied().fold(0.0, f32::max);
-        colour += usize::from(max - min > min_chroma);
+        colour += usize::from(coloured.is(*output));
         pairs.push((input.map(f64::from), output.map(f64::from)));
     }
     (pairs.len() >= 256 && colour >= pairs.len() / 20).then_some((pairs, bright))
@@ -833,7 +866,7 @@ fn fit_pairs_on(
 ) -> Option<CameraLook> {
     // A known colour model needs enough signal for tone fitting, not a scene rich enough to
     // learn a new colour matrix. Still reject monochrome references.
-    let (pairs, bright) = collect_pairs(sensor, reference, if colour.is_some() { 0.005 } else { 0.05 }, edge_limit)?;
+    let (pairs, bright) = collect_pairs(sensor, reference, if colour.is_some() { Coloured::Spread(0.005) } else { Coloured::Learnable }, edge_limit)?;
     let candidates = match colour {
         Some(given) => vec![given],
         None => {
@@ -971,13 +1004,30 @@ fn rank_correlation_ties(pairs: &[([f64; 3], [f64; 3])]) -> f64 {
 /// and in gamma-encoded display values, and when the JPEG shows the same picture
 /// ([`PARTIAL_MIN_RANK_CORRELATION`]). There is no limit on its own error: it only has to be clearly
 /// closer to the camera JPEG than what the photo would get otherwise.
+///
+/// When neither passes, both are tried once more with the linear error only required not to grow
+/// ([`PARTIAL_LINEAR_LIMIT`]); the gamma-encoded one must still fall below [`MIN_IMPROVEMENT`]. The
+/// first pass's test is unchanged, so the second only gives a look to a photo that had none.
 fn fit_partial(sensor: &Rgb32f, reference: &Rgb32f) -> Option<CameraLook> {
-    [None, Some(EDGE_CONTRAST)].into_iter().find_map(|edge_limit| fit_partial_on(sensor, reference, edge_limit))
+    [MIN_IMPROVEMENT, PARTIAL_LINEAR_LIMIT]
+        .into_iter()
+        .find_map(|linear| [None, Some(EDGE_CONTRAST)].into_iter().find_map(|edge_limit| fit_partial_on(sensor, reference, edge_limit, linear)))
 }
 
-fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>) -> Option<CameraLook> {
+/// Share of the neutral fallback's held-out squared error, in linear display values, that a [`fit_partial`] look may
+/// keep on its second pass: it must not be further from the camera JPEG, while in gamma-encoded values (closer to
+/// what is seen) it must still be clearly closer. In a dark frame the linear error belongs to the few bright pixels:
+/// in an ISO 3200 church interior (EOS Rebel T5) a lamp covers two of 640 pairs, and the one that is held out has
+/// 63% of the look's linear error (4% of the fallback's). The camera clips the lamp to white inside a proxy pixel
+/// that is dark otherwise, which no curve applied to the pixel's mean reproduces, and the dark default curve happens
+/// to land on it. Every look then left the linear error where it was (0.96 of the fallback's; 0.31 without those two
+/// pixels) while cutting the gamma-encoded one to 0.54, and the photo kept the grey fallback.
+const PARTIAL_LINEAR_LIMIT: f64 = 1.0;
+
+/// One [`fit_partial`] attempt; `linear_limit` is the share of the neutral fallback's linear error it may keep.
+fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>, linear_limit: f64) -> Option<CameraLook> {
     // as for a known colour model: enough signal for the tone, but no monochrome reference
-    let (pairs, bright) = collect_pairs(sensor, reference, 0.005, edge_limit)?;
+    let (pairs, bright) = collect_pairs(sensor, reference, Coloured::Spread(0.005), edge_limit)?;
     let related = rank_correlation(&pairs);
     if related < PARTIAL_MIN_RANK_CORRELATION {
         if lightcraft_pipeline::profiling() {
@@ -985,8 +1035,7 @@ fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>) 
         }
         return None;
     }
-    let spread = |y: &[f64; 3]| y.iter().copied().fold(f64::NEG_INFINITY, f64::max) - y.iter().copied().fold(f64::INFINITY, f64::min);
-    let colourful = pairs.iter().filter(|(_, y)| spread(y) > 0.05).count() >= pairs.len() / 20;
+    let colourful = pairs.iter().filter(|(_, y)| Coloured::Learnable.is(y.map(|v| v as f32))).count() >= pairs.len() / 20;
     let matrix = match colourful.then(|| fit_matrix(&pairs)).flatten() {
         Some(own) => Mat3(std::array::from_fn(|r| {
             std::array::from_fn(|c| Mat3::IDENTITY.0[r][c] + PARTIAL_MATRIX_WEIGHT * (own.0[r][c] - Mat3::IDENTITY.0[r][c]))
@@ -1013,16 +1062,18 @@ fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>) 
     }
     if lightcraft_pipeline::profiling() {
         eprintln!(
-            "[profile] camera look partial (tone{}{}) holdout RMS {:.5} -> {:.5} ({samples} channels{})",
+            "[profile] camera look partial (tone{}{}) holdout RMS {:.5} -> {:.5}, gamma-encoded {:.5} -> {:.5} ({samples} channels{}{})",
             if look.tone.chroma().iter().any(|k| *k != 1.0) { ", chroma" } else { "" },
             if matrix != Mat3::IDENTITY { ", damped matrix" } else { "" },
             (before / samples.max(1) as f64).sqrt(),
             (after / samples.max(1) as f64).sqrt(),
-            if edge_limit.is_some() { ", away from edges" } else { "" }
+            (before_encoded / samples.max(1) as f64).sqrt(),
+            (after_encoded / samples.max(1) as f64).sqrt(),
+            if edge_limit.is_some() { ", away from edges" } else { "" },
+            if linear_limit > MIN_IMPROVEMENT { ", linear error only not to grow" } else { "" }
         );
     }
-    let better =
-        after.is_finite() && after_encoded.is_finite() && after < before * MIN_IMPROVEMENT && after_encoded < before_encoded * MIN_IMPROVEMENT;
+    let better = after.is_finite() && after_encoded.is_finite() && after < before * linear_limit && after_encoded < before_encoded * MIN_IMPROVEMENT;
     (samples > 0 && better).then_some(look)
 }
 
@@ -1086,7 +1137,7 @@ fn fit_tone_only(sensor: &Rgb32f, reference: &Rgb32f, colour: Option<(Mat3, Opti
 
 fn fit_tone_only_on(sensor: &Rgb32f, reference: &Rgb32f, colour: &Option<(Mat3, Option<HsvTable>)>, edge_limit: Option<f32>) -> Option<CameraLook> {
     // every pair counts: the JPEG has no colour to require
-    let (pairs, _) = collect_pairs(sensor, reference, f32::NEG_INFINITY, edge_limit)?;
+    let (pairs, _) = collect_pairs(sensor, reference, Coloured::Spread(f32::NEG_INFINITY), edge_limit)?;
     let related = rank_correlation_ties(&pairs);
     if related < PARTIAL_MIN_RANK_CORRELATION {
         if lightcraft_pipeline::profiling() {
@@ -1489,7 +1540,7 @@ mod tests {
     fn colour_holdouts_stay_out_of_the_wider_tone_training() {
         let (sensor, reference) = steep_toe_scene();
         let fit = |reference: &Rgb32f| {
-            let (pairs, _) = collect_pairs(&sensor, reference, 0.005, None).unwrap();
+            let (pairs, _) = collect_pairs(&sensor, reference, Coloured::Spread(0.005), None).unwrap();
             fit_tone_with_shadows(ToneFit::Quantile, &pairs, &sensor, reference, None, |x| x).unwrap()
         };
         let expected = fit(&reference);
@@ -1546,7 +1597,7 @@ mod tests {
                 *dst = [y * slope; 3];
                 assert_eq!(colour_pair(*src, *dst), i >= 600);
             }
-            let (pairs, _) = collect_pairs(&sensor, &reference, f32::NEG_INFINITY, None).unwrap();
+            let (pairs, _) = collect_pairs(&sensor, &reference, Coloured::Spread(f32::NEG_INFINITY), None).unwrap();
             let original = fit_tone(pairs.iter().enumerate().filter(|(i, _)| i % 3 != 0).map(|(_, (x, y))| (luma(*x), luma(*y))).collect()).unwrap();
             // Both sample sets start at a multiple of three, so this split matches
             // the helper's separate colour and extra-sample indices.
@@ -1847,7 +1898,7 @@ mod tests {
         let mut pool = Vec::new();
         for seed in 0..4 {
             let (sensor, reference) = photo(seed, 2.0 + seed as f32 * 0.5);
-            pool.extend(collect_pairs(&sensor, &reference, 0.05, None).unwrap().0);
+            pool.extend(collect_pairs(&sensor, &reference, Coloured::Spread(COLOUR_SPREAD), None).unwrap().0);
         }
         let (matrix, _) = fit_profile(&pool).unwrap();
         // the camera's colours (luminance-normalised: the tone curve sets brightness)
@@ -3002,6 +3053,127 @@ mod tests {
         // a black-and-white JPEG of the scene
         reference.data.iter_mut().zip(&sensor.data).for_each(|(r, s)| *r = [0.8 * luminance_2020(*s).sqrt(); 3]);
         assert!(fit_look(&sensor, &reference, &none, None).is_none(), "monochrome JPEG");
+    }
+
+    /// A dim interior of saturated golds and reds (a church ceiling at ISO 3200), three stops under mid-grey, as a
+    /// camera with a strong colour matrix and a curve three times brighter than the scene renders it. `contrast`
+    /// is the brightness ratio of neighbouring pixels (fine detail everywhere when above [`EDGE_CONTRAST`]).
+    fn dim_interior(contrast: f32) -> (Rgb32f, Rgb32f) {
+        let (w, h) = (96usize, 64usize);
+        let mut sensor = Rgb32f::new(w, h);
+        for (i, p) in sensor.data.iter_mut().enumerate() {
+            let detail = if (i % w + i / w) % 2 == 0 { 1.0 } else { 1.0 / contrast };
+            let ev = (0.0048 + (i % 23) as f32 * 0.00018) * detail;
+            *p = [ev * (1.0 + (i % 11) as f32 * 0.03), ev, ev * (0.55 + (i % 13) as f32 * 0.03)];
+        }
+        let mut reference = sensor.clone();
+        reference.map_in_place(dim_camera);
+        (sensor, reference)
+    }
+
+    /// The camera of [`dim_interior`].
+    fn dim_camera(p: [f32; 3]) -> [f32; 3] {
+        let q = Mat3([[2.2, -0.9, -0.3], [-0.35, 1.7, -0.35], [-0.1, -0.6, 1.7]]).apply_f32(p);
+        let y = luminance_2020(q);
+        if y <= 0.0 { [0.0; 3] } else { q.map(|v| (v * (1.0 - (-3.0 * y).exp()) / y).max(0.0)) }
+    }
+
+    /// Mean colourfulness (distance from neutral of luminance-normalised RGB) of `render` over `scene`.
+    fn mean_colourfulness(scene: &Rgb32f, render: impl Fn([f64; 3]) -> [f64; 3]) -> f64 {
+        let chroma = |p: [f64; 3]| {
+            let y = luma(p);
+            if y > 0.0 { p.iter().map(|v| (v / y - 1.0).powi(2)).sum::<f64>().sqrt() } else { 0.0 }
+        };
+        scene.data.iter().map(|x| chroma(render(x.map(f64::from)))).sum::<f64>() / scene.data.len() as f64
+    }
+
+    /// What `look` renders a scene colour as (matrix, hue/saturation table, tone and chroma curve).
+    fn rendered(look: &CameraLook, x: [f64; 3]) -> [f64; 3] {
+        let p = look.matrix.apply(x);
+        let p = look.hue_sat.as_ref().and_then(HueSat::new).map_or(p, |c| c.apply(p.map(|v| v as f32)).map(f64::from));
+        displayed(p, &ToneMap::camera(&look.tone, 0.0, 0.0, 0.0))
+    }
+
+    /// A dark frame full of colour has too little channel spread to count as coloured by the spread alone (a spread
+    /// is brightness times saturation), so no colour was learnt from it: it took the partial look with the identity
+    /// matrix and rendered near-monochrome. By saturation it is coloured, and its look follows the camera's colour.
+    #[test]
+    fn a_dark_coloured_scene_learns_its_colour() {
+        let (sensor, reference) = dim_interior(1.0);
+        let n = reference.data.len();
+        let spread = reference.data.iter().filter(|p| Coloured::Spread(COLOUR_SPREAD).is(**p)).count();
+        let saturated = reference.data.iter().filter(|p| Coloured::Learnable.is(**p)).count();
+        assert!(spread * 20 < n, "too dark for the spread: {spread} of {n} pixels");
+        assert!(saturated * 2 > n, "but coloured: {saturated} of {n} pixels");
+        assert!(collect_pairs(&sensor, &reference, Coloured::Spread(COLOUR_SPREAD), None).is_none(), "the spread alone finds no colour");
+
+        let look = fit_look(&sensor, &reference, &vec![false; n], None).expect("a look");
+        assert_ne!(look.matrix, Mat3::IDENTITY, "the photo's own colour, not the neutral fallback's");
+        let neutral = ToneMap::new(0.0, 0.0, 0.0);
+        let camera = mean_colourfulness(&sensor, |x| dim_camera(x.map(|v| v as f32)).map(f64::from));
+        let fitted = mean_colourfulness(&sensor, |x| rendered(&look, x)) / camera;
+        let fallback = mean_colourfulness(&sensor, |x| displayed(x, &neutral)) / camera;
+        assert!((0.95..1.05).contains(&fitted), "colourfulness against the camera: {fitted:.3}");
+        assert!(fallback < 0.7, "the neutral fallback keeps {fallback:.3} of it");
+        // pixel for pixel, far closer to the camera than the neutral fallback
+        let error = mean_error(&sensor, dim_camera, |x| rendered(&look, x));
+        assert!(error < 0.02 * mean_error(&sensor, dim_camera, |x| displayed(x, &neutral)), "{error:e}");
+
+        // a dull scene stays dull whatever its brightness: no colour is learnt from grey
+        let mut grey = sensor.clone();
+        grey.map_in_place(|p| {
+            let y = luminance_2020(p);
+            [y * 1.04, y, y * 0.97]
+        });
+        let mut reference = grey.clone();
+        reference.map_in_place(dim_camera);
+        assert!(collect_pairs(&grey, &reference, Coloured::Learnable, None).is_none(), "grey is not coloured for being dark");
+    }
+
+    /// [`dim_interior`] with detail everywhere (so nothing is left away from edges) and `lamps` pixels of a lamp: the
+    /// camera clips it to white inside proxy pixels that are dark otherwise, which no curve applied to a pixel's
+    /// mean follows, while the dark default curve happens to land on it.
+    fn dim_interior_with_lamps(lamps: usize) -> (Rgb32f, Rgb32f) {
+        let (mut sensor, mut reference) = dim_interior(4.0);
+        let lamp = [0.1, 0.09, 0.15];
+        let camera = displayed(lamp.map(f64::from), &ToneMap::new(0.0, 0.0, 0.0)).map(|v| v as f32);
+        for k in 0..lamps {
+            let i = (200 + k * 397) % sensor.data.len();
+            sensor.data[i] = lamp;
+            reference.data[i] = camera;
+        }
+        (sensor, reference)
+    }
+
+    /// A few lamp pixels hold the linear error of a dark frame, so no look cut it by the usual 30% and the photo kept
+    /// the grey neutral fallback. The partial look is clearly closer where it is seen (gamma-encoded) and no further
+    /// away in linear values: it is used.
+    #[test]
+    fn partial_look_when_a_lamp_holds_the_linear_error() {
+        let (sensor, reference) = dim_interior_with_lamps(7);
+        let none = vec![false; sensor.data.len()];
+        assert!(fit_pairs(&sensor, &reference).is_none(), "the full look misses the gates");
+        assert!(fit_partial_on(&sensor, &reference, None, MIN_IMPROVEMENT).is_none(), "and so does the partial look in linear values");
+        assert!(fit_partial_on(&sensor, &reference, Some(EDGE_CONTRAST), MIN_IMPROVEMENT).is_none(), "nothing is left away from edges");
+        let look = fit_look(&sensor, &reference, &none, None).expect("a partial look instead of the neutral fallback");
+        assert!(look.hue_sat.is_none(), "the partial look");
+        // away from the lamp the picture is far closer to the camera's, in brightness and in colour
+        let (scene, _) = dim_interior(4.0);
+        let neutral = ToneMap::new(0.0, 0.0, 0.0);
+        let encoded = |p: [f64; 3]| p.map(|v| v.max(0.0).powf(1.0 / 2.2));
+        let seen = |render: &dyn Fn([f64; 3]) -> [f64; 3]| {
+            mean_error(&scene, |x| encoded(dim_camera(x).map(f64::from)).map(|v| v as f32), |x| encoded(render(x)))
+        };
+        let (partial, fallback) = (seen(&|x| rendered(&look, x)), seen(&|x| displayed(x, &neutral)));
+        assert!(partial < fallback * 0.3, "partial {partial:.6}, neutral fallback {fallback:.6}");
+        let camera = mean_colourfulness(&scene, |x| dim_camera(x.map(|v| v as f32)).map(f64::from));
+        let colour = (mean_colourfulness(&scene, |x| rendered(&look, x)) / camera, mean_colourfulness(&scene, |x| displayed(x, &neutral)) / camera);
+        assert!(colour.0 > 0.8 && colour.1 < 0.7, "colourfulness against the camera: partial {:.3}, neutral fallback {:.3}", colour.0, colour.1);
+
+        // a look that is further from the camera JPEG in linear values than the fallback stays out, however much
+        // closer it looks: with a larger lamp the photo keeps the fallback
+        let (sensor, reference) = dim_interior_with_lamps(24);
+        assert!(fit_look(&sensor, &reference, &none, None).is_none(), "more linear error than the neutral fallback's");
     }
 
     /// A coloured scene whose camera JPEG is black and white: the camera's tone curve applied to the scene's

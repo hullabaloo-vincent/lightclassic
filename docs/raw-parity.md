@@ -1,6 +1,6 @@
 # RAW parity: cameras, formats, demosaic, colour and lens profiles
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (Leica Q3 verified by a recorded check of 38 private DNGs; EOS R5 Mark II decoded and verified: CRX QP-map escape, odd-height planes) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6 (Camera Raw 18.7)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (Canon camera JPEGs read in the colour space the maker note states; dark coloured frames learn their colour; scores unchanged) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6 (Camera Raw 18.7)
 
 Raw processing is the deepest single dimension of Lightroom parity: a photographer whose camera
 does not decode, or decodes with the wrong colour, cannot switch. This document measures it model by
@@ -201,7 +201,9 @@ sample files. A pointer for contributors, not legal advice.
 - Against the camera JPEG (what the fit targets): the Sony bulk check (#535) accepted fits on 81 of 87
   bodies, median ΔE 5.1, ΔL\* +0.2; rejected fits fall back to a neutral matrix at median ΔE 18.5,
   ΔL\* −11, chroma ×0.39. RW2 140 of 174 files accepted, median 5.0. NEF 13 of 13, 2.9–7.8. RAF 23 of
-  24, pooled X-H2S 1.62 / X-T4 2.34. SRW 2.2–7.6.
+  24, pooled X-H2S 1.62 / X-T4 2.34. SRW 2.2–7.6. CR2: 20 files of one EOS Rebel T5 (1200D) shot in Adobe RGB,
+  19 full looks and one partial, mean ΔE76 3.01 (1.2–5.7), chroma ×0.96; 4.45 and ×0.88 while that JPEG was read as sRGB
+  ([camera-preview-colour.md](camera-preview-colour.md#canon-raws-shot-in-adobe-rgb-and-dark-frames)).
 - Against Lightroom itself (few): Sony DRO median ΔE76 7.5 → 3.3; Olympus E-1 vs Lightroom Classic
   ΔE00 11.25 → 8.30; ProRAW with its gain map ΔE00 19 (why the map is off). No measurement against
   Adobe Standard across models exists.
@@ -272,6 +274,7 @@ Beyond decoding:
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | patch | Camera colour: a Canon CR2 shot in Adobe RGB has its camera JPEG read as Adobe RGB (maker note `0x00b4`; it was read as sRGB and every look fitted to it came out muted); a dark frame full of colour counts as coloured (spread, or 0.3 of the brightest channel) instead of taking the identity matrix; a partial look is kept when a few bright pixels hold the linear error. 20 EOS Rebel T5 (1200D) CR2s: mean ΔE76 to the camera JPEG 4.45 → 3.01, all closer; not re-measured on the CC0 archive; scores unchanged |
 | 2026-10-11 | minor | Leica Q3 verified by a recorded check of 38 private DNGs (no decode failure; mean ΔE to the camera JPEG 6.3–13.9): 236 verified, 941 unverified, Leica bucket on a verified body 5% → 21%, weighted shares unchanged |
 | 2026-10-12 | patch | CR2 white level from the active area, not the saturated masked rows above it (#1272: EOS 50D, 60D, 450D (Rebel XSi), 500D (Rebel T1i), 550D (Rebel T2i), 1200D (Rebel T5) and 100D (Rebel SL1)); scores unchanged |
 | 2026-10-12 | minor | Canon PowerShot G9: as-shot white balance from WBInfo (`0x0029`, the row of the preset in ShotInfo), issue #1273; render unchanged (the camera-look fit already absorbed it), As Shot now the camera's; counts unchanged |
