@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (Classic interface style: Develop's panels) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (Classic interface style: Develop's left column) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 How LightCraft's interaction compares with Lightroom's: views, panels, tools and handles, modifier
 keys, shortcuts, zoom, context menus and feel. Rows for individual menu items and shortcuts live in
@@ -22,7 +22,7 @@ assessment and the notes that don't fit a row. Visual reference for agents: `pla
 
 | Area | Target | LightCraft | Ready | Main gaps |
 |---|---|---|---:|---|
-| Layout and views | Lightroom: grid / detail / edit; Classic: Library, Develop, Map, Book, Slideshow, Print, Web modules, filmstrip, panels | Lightroom-style single window: Photo Grid, Square Grid, Detail, Compare, Survey (≤ 48), Before / After, People, quick slideshow, second window, filmstrip | 75% | Classic interface style ([classic-interface.md](classic-interface.md)): Library / Develop module picker, side columns, toolbar under the photo, filmstrip across the window, Develop as Classic's panels (Basic … Calibration); Develop's left panels still to come; no output modules; dark theme only |
+| Layout and views | Lightroom: grid / detail / edit; Classic: Library, Develop, Map, Book, Slideshow, Print, Web modules, filmstrip, panels | Lightroom-style single window: Photo Grid, Square Grid, Detail, Compare, Survey (≤ 48), Before / After, People, quick slideshow, second window, filmstrip | 75% | Classic interface style ([classic-interface.md](classic-interface.md)): Library / Develop module picker, side columns, toolbar under the photo, filmstrip across the window, Develop as Classic's panels (Navigator, Presets, Snapshots, History; Histogram, tools, Basic … Calibration); the Library's panels are still the Modern ones; no output modules; dark theme only |
 | Develop panels and sliders | Light, Color, Effects, Detail, Optics, Geometry, Lens Blur, Calibration | every global slider; scrub, double-click reset, Alt-drag previews where implemented | 80% | Lens Blur, Calibration panel depth; slider feel (acceleration, fine Shift-drag) unmeasured |
 | Crop, Upright, transform handles | handles, aspect lock, angle, overlays (O / ⇧O), guided Upright | ✅ all of them; overlay cycle on ⇧O | 85% | crop opacity of cut-out area (15.5) |
 | Masking tools | brush (A / B, flow, density, auto mask, pressure), linear / radial, range masks, AI masks, pins | brush, linear, radial, colour / luminance range, add / subtract / intersect / invert, masks panel, pins | 60% | brush live preview (#517 / #518), no pen pressure, no depth range, AI masks, Feather / Edge controls (15.5) |
@@ -105,6 +105,7 @@ left panel, canvas, right panel, which is sensible but not tuned).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Layout row: Develop's left column in the Classic interface style (CLASSIC.4) |
 | 2026-10-13 | minor | Layout row: Develop in the Classic interface style is Classic's panel set (CLASSIC.3) |
 | 2026-10-13 | minor | Layout row: the Classic interface style draws its own frame (module picker, columns, full-width filmstrip; CLASSIC.2); percentages unchanged until its Develop panels land |
 | 2026-10-13 | minor | Layout row: the Classic interface style and its Library / Develop module commands (CLASSIC.1); percentages unchanged until its frame is drawn |

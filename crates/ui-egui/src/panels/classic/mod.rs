@@ -5,6 +5,9 @@
 //! The panels are fixed in place, as in Lightroom Classic: the docking of the Modern style is not used here (its
 //! saved arrangement is kept for when the style is switched back).
 
+mod develop_left;
+mod navigator;
+
 use egui::{Align2, Sense, vec2};
 use serde_json::json;
 
@@ -55,17 +58,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let right = app.ui.right != RightPanel::None;
     if app.ui.left_panel {
         let reserve = if right { RIGHT_WIDTH.min } else { 0.0 };
-        let dragged = super::resizable_side(ui, true, "left_panel", frame, app.ui.left_width, LEFT_WIDTH, reserve, |ui| super::left::show(app, ui));
+        let dragged = super::resizable_side(ui, true, "left_panel", frame, app.ui.left_width, LEFT_WIDTH, reserve, |ui| {
+            if app.ui.classic.module == Module::Develop { develop_left::show(app, ui) } else { super::left::show(app, ui) }
+        });
         if let Some(width) = dragged {
             app.ui.left_width = width;
         }
     }
     if right {
         let dragged = super::resizable_side(ui, false, "right_panel", frame, app.ui.right_width, RIGHT_WIDTH, 0.0, |ui| {
-            // Develop's own column, except while a panel that takes the whole of it is open (the profile browser,
-            // and Versions and History until they move to the left column)
-            let whole = matches!(app.ui.right, RightPanel::Profiles | RightPanel::Versions | RightPanel::Activity);
-            if app.ui.classic.module == Module::Develop && !whole {
+            // Develop's own column, except while the profile browser has the whole of it
+            if app.ui.classic.module == Module::Develop && app.ui.right != RightPanel::Profiles {
                 super::edit::classic::show(app, ui);
             } else {
                 super::right::show(app, ui);
@@ -84,6 +87,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // The loupe, Compare, Survey and Reference draw a filmstrip of their own inside the photo area while the flag
     // is set; here the one across the window stands in for it.
     let filmstrip = std::mem::take(&mut app.ui.filmstrip);
+    // Likewise the loupe's mini map while zoomed in: Develop's left column has the Navigator panel (folded, it is
+    // the user's choice not to see one).
+    let panel = app.ui.classic.module == Module::Develop && app.ui.left_panel;
+    let navigator = if panel { std::mem::take(&mut app.ui.navigator) } else { false };
     // No wildcard: a view added to `ViewMode` must be placed in this frame too.
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| match app.ui.view {
         ViewMode::PhotoGrid | ViewMode::SquareGrid => super::grid::show(app, ui),
@@ -95,6 +102,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     });
     // a toggle made while the view was drawn (it saw the strip as off) is kept
     app.ui.filmstrip = filmstrip != app.ui.filmstrip;
+    if panel {
+        app.ui.navigator = navigator != app.ui.navigator;
+    }
 }
 
 /// The photos in the filmstrip across the window (the cells it drew last frame, with those just out of view), for

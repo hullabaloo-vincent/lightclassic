@@ -11,6 +11,9 @@
   under it, then Basic, Tone Curve, HSL / Color, Color Grading, Detail, Lens Corrections, Transform, Effects and
   Calibration. A click on a header folds its panel; Detail, Lens Corrections, Transform and Calibration have a switch
   that turns their adjustments off without losing them. A tool opens under the tool row, with the panels still below.
+- On Develop's left are Navigator, Presets, Snapshots (your versions) and History. The Navigator always shows the
+  whole photo; zoomed in, it outlines what the loupe shows, and a click or drag there moves it. ⇧P, ⇧V and Window ▸
+  History fold the three lists.
 - The Modern arrangement is unchanged, and remains the one LightCraft starts in for now.
 ## 2026-10-13
 

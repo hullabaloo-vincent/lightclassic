@@ -1012,8 +1012,13 @@ fn keyword_set(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 }
 
 fn versions(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     header(ui, "Versions");
+    versions_body(app, ui, id);
+}
+
+/// Versions without its title: Create Version and the named and automatic versions (Classic's Snapshots panel).
+pub(super) fn versions_body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     let t = Tokens::get(ui.ctx());
     padded(ui, |ui| {
         if text_button(ui, "versionCreate", crate::i18n::tr("Create Version"), false).clicked() {
@@ -1137,8 +1142,13 @@ fn history_row(i: usize, cursor: Option<usize>) -> HistoryRow {
 }
 
 fn activity(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     header(ui, "History");
+    activity_body(app, ui, id);
+}
+
+/// History without its title: the photo's edit steps, newest first.
+pub(super) fn activity_body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     let t = Tokens::get(ui.ctx());
     padded(ui, |ui| {
         if p.history.is_empty() {

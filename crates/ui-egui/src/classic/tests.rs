@@ -141,9 +141,10 @@ fn the_module_follows_the_existing_view_and_panel_commands() {
     assert_eq!((app.ui.right, app.ui.classic.module), (RightPanel::Edit, Module::Develop));
     run(&mut app, "panel.edit");
     assert_eq!((app.ui.right, app.ui.classic.module), (RightPanel::Edit, Module::Develop));
-    // Versions and History open beside the photo without leaving Develop
+    // Versions and History are panels of Develop's left column: their commands unfold those
     run(&mut app, "panel.versions");
-    assert_eq!((app.ui.right, app.ui.classic.module), (RightPanel::Versions, Module::Develop));
+    assert_eq!((app.ui.right, app.ui.classic.module), (RightPanel::Edit, Module::Develop));
+    assert!(super::LeftPanel::Snapshots.open(&app.ui) && app.ui.left_panel);
     // Info is the Library's
     run(&mut app, "panel.info");
     assert_eq!((app.ui.right, app.ui.classic.module), (RightPanel::Info, Module::Library));

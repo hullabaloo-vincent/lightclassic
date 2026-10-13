@@ -178,10 +178,73 @@ impl DevelopPanel {
     }
 }
 
-/// `view.classicPanel {panel, open?}`: fold or unfold a panel of the Classic Develop column (`histogram`, or a
-/// [`DevelopPanel::id`]); without `open`, the other state.
+/// A panel of the Classic Develop module's left column, top to bottom ([`Self::ALL`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeftPanel {
+    Navigator,
+    Presets,
+    /// The photo's versions.
+    Snapshots,
+    History,
+}
+
+impl LeftPanel {
+    pub const ALL: [Self; 4] = [Self::Navigator, Self::Presets, Self::Snapshots, Self::History];
+
+    /// Its name in `view.classicPanel` and in widget ids (`classicPanel:{id}`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Navigator => "navigator",
+            Self::Presets => "presets",
+            Self::Snapshots => "snapshots",
+            Self::History => "history",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Navigator => "Navigator",
+            Self::Presets => "Presets",
+            Self::Snapshots => "Snapshots",
+            Self::History => "History",
+        }
+    }
+
+    /// Unfolded? The Navigator and Presets follow the settings the Modern style has for them (`view.navigator`,
+    /// `panel.presets`); Snapshots and History are kept with the open sections.
+    pub fn open(self, ui: &UiState) -> bool {
+        match self {
+            Self::Navigator => ui.navigator,
+            Self::Presets => ui.presets,
+            Self::Snapshots | Self::History => ui.section_open(self.id()),
+        }
+    }
+
+    fn set_open(self, ui: &mut UiState, open: bool) {
+        match self {
+            Self::Navigator => ui.navigator = open,
+            Self::Presets => ui.presets = open,
+            // not `toggle_section`: single-panel mode is about the develop panels, and would fold those
+            Self::Snapshots | Self::History => {
+                ui.open_sections.retain(|s| s != self.id());
+                if open {
+                    ui.open_sections.push(self.id().to_string());
+                }
+            }
+        }
+    }
+}
+
+/// `view.classicPanel {panel, open?}`: fold or unfold a panel of the Classic Develop module (`histogram`, a
+/// [`DevelopPanel::id`] or a [`LeftPanel::id`]); without `open`, the other state.
 fn panel_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
-    let known = || std::iter::once("histogram").chain(DevelopPanel::ALL.map(DevelopPanel::id)).collect::<Vec<_>>().join("|");
+    let known = || {
+        std::iter::once("histogram")
+            .chain(DevelopPanel::ALL.map(DevelopPanel::id))
+            .chain(LeftPanel::ALL.map(LeftPanel::id))
+            .collect::<Vec<_>>()
+            .join("|")
+    };
     let name = p.get("panel").and_then(Value::as_str).ok_or_else(|| format!("view.classicPanel: `panel` is one of {}", known()))?;
     let open = match p.get("open") {
         None | Some(Value::Null) => None,
@@ -191,6 +254,11 @@ fn panel_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     if name == "histogram" {
         app.ui.histogram = open.unwrap_or(!app.ui.histogram);
         return Ok(json!({"panel": name, "open": app.ui.histogram}));
+    }
+    if let Some(panel) = LeftPanel::ALL.into_iter().find(|panel| panel.id() == name) {
+        let open = open.unwrap_or(!panel.open(&app.ui));
+        panel.set_open(&mut app.ui, open);
+        return Ok(json!({"panel": name, "open": panel.open(&app.ui)}));
     }
     let panel = DevelopPanel::ALL
         .into_iter()
@@ -266,10 +334,20 @@ pub(crate) fn reconcile(app: &mut LightcraftApp) {
     } else if ui.right.is_edit_tool() {
         Module::Develop
     } else if was == Module::Develop && matches!(ui.right, RightPanel::None | RightPanel::Versions | RightPanel::Activity) {
-        // Develop keeps its panels: closing the one shown brings Edit back
-        if ui.right == RightPanel::None {
-            ui.right = RightPanel::Edit;
+        // Versions and History are panels of Develop's left column: their commands fold those, and show the column
+        // when they unfold one in it
+        let left = match ui.right {
+            RightPanel::Versions => Some(LeftPanel::Snapshots),
+            RightPanel::Activity => Some(LeftPanel::History),
+            _ => None,
+        };
+        if let Some(panel) = left {
+            let open = !(panel.open(ui) && ui.left_panel);
+            panel.set_open(ui, open);
+            ui.left_panel |= open;
         }
+        // Develop keeps its panels: closing the one shown brings Edit back
+        ui.right = RightPanel::Edit;
         Module::Develop
     } else {
         Module::Library
@@ -349,6 +427,11 @@ pub(crate) fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
         "view.interface" => Some(active(app)),
         "module.library" => Some(app.ui.classic.module == Module::Library),
         "module.develop" => Some(app.ui.classic.module == Module::Develop),
+        // in Classic Develop these fold a panel of the left column instead of opening one on the right
+        "panel.versions" | "panel.activity" if active(app) && app.ui.classic.module == Module::Develop => {
+            let panel = if id == "panel.versions" { LeftPanel::Snapshots } else { LeftPanel::History };
+            Some(panel.open(&app.ui) && app.ui.left_panel)
+        }
         _ => None,
     }
 }

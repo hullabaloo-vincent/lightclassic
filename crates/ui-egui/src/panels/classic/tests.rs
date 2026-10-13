@@ -362,3 +362,129 @@ fn a_tool_opens_under_the_tool_strip_above_the_panels() {
     assert_eq!(h.app.ui.right, RightPanel::Edit);
     assert!(widget(&h, "classicPanel:basic").is_some());
 }
+
+// ------------------------------------------------------------------------------------ Develop's left column
+
+use crate::classic::LeftPanel;
+
+fn exposure(h: &Headless) -> f64 {
+    h.app.session.active().and_then(|id| h.app.session.develop_of(id)).map_or(0.0, |d| d.light.exposure)
+}
+
+#[test]
+fn develops_left_column_is_navigator_presets_snapshots_history() {
+    let mut h = develop();
+    let left = rect(&h, "panel:left_panel");
+    let mut above = left.top() - 0.5;
+    for panel in LeftPanel::ALL {
+        let r = rect(&h, &format!("classicPanel:{}", panel.id()));
+        assert!(left.contains_rect(r) && r.top() >= above, "the {} header {r:?} in the left column {left:?}, under {above}", panel.id());
+        above = r.bottom() - 0.5;
+    }
+    assert!(widget(&h, "sidebarTitle").is_none(), "the Library's sources are drawn in Develop's left column");
+    // the Library keeps its own
+    click(&mut h, "module:library");
+    assert!(widget(&h, "sidebarTitle").is_some());
+    assert!(widget(&h, "classicPanel:navigator").is_none());
+}
+
+#[test]
+fn left_panels_fold_by_header_and_command() {
+    let mut h = develop();
+    assert!(h.app.ui.navigator, "the Navigator starts unfolded");
+    let photo = rect(&h, "classicNavigator");
+    assert!(rect(&h, "panel:left_panel").contains_rect(photo), "the Navigator shows the photo: {photo:?}");
+    click(&mut h, "classicPanel:navigator");
+    assert!(!h.app.ui.navigator && widget(&h, "classicNavigator").is_none());
+    assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": "navigator", "open": true})), json!({"panel": "navigator", "open": true}));
+    assert!(widget(&h, "classicNavigator").is_some());
+
+    for panel in [LeftPanel::Presets, LeftPanel::Snapshots, LeftPanel::History] {
+        let was = panel.open(&h.app.ui);
+        assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": panel.id()}))["open"], !was, "{}", panel.id());
+        assert_eq!(panel.open(&h.app.ui), !was);
+        click(&mut h, &format!("classicPanel:{}", panel.id()));
+        assert_eq!(panel.open(&h.app.ui), was, "a click on the {} header folds it back", panel.id());
+    }
+}
+
+#[test]
+fn the_navigator_moves_the_loupe_and_replaces_its_mini_map() {
+    let mut h = develop();
+    exec(&mut h, "view.zoom100", json!({}));
+    assert!(widget(&h, "canvas:navigator").is_none(), "the loupe draws its mini map beside the Navigator panel");
+    assert!(h.app.ui.navigator, "the Navigator setting was lost while the loupe was drawn");
+    let before = h.app.ui.pan;
+    let r = h.request("ui.clickWidget", json!({"id": "classicNavigator", "fx": 0.2, "fy": 0.8}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let pan = h.app.ui.pan;
+    assert_ne!(pan, before, "a click in the Navigator moves the loupe");
+    assert!((pan.0 - 0.2).abs() < 0.05 && (pan.1 - 0.8).abs() < 0.05, "to the point clicked: {pan:?}");
+    // with the left column hidden the loupe has its mini map back
+    exec(&mut h, "view.leftPanel", json!({}));
+    assert!(widget(&h, "canvas:navigator").is_some(), "no mini map with the left column hidden");
+}
+
+#[test]
+fn versions_and_history_commands_fold_the_left_panels_in_develop() {
+    let mut h = develop();
+    assert!(!LeftPanel::Snapshots.open(&h.app.ui));
+    exec(&mut h, "panel.versions", json!({}));
+    assert!(LeftPanel::Snapshots.open(&h.app.ui), "Shift+V unfolds Snapshots");
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Edit, Module::Develop), "and leaves Develop's panels on the right");
+    assert!(widget(&h, "button:versionCreate").is_some(), "Snapshots shows the versions");
+    assert!(rect(&h, "panel:left_panel").contains_rect(rect(&h, "button:versionCreate")));
+    exec(&mut h, "panel.versions", json!({}));
+    assert!(!LeftPanel::Snapshots.open(&h.app.ui));
+
+    // History: two edits, then back to the first by its row
+    exec(&mut h, "develop.set", json!({"control": "light.exposure", "value": 1.0}));
+    exec(&mut h, "develop.set", json!({"control": "light.exposure", "value": 2.0}));
+    if !LeftPanel::History.open(&h.app.ui) {
+        exec(&mut h, "panel.activity", json!({}));
+    }
+    assert!(LeftPanel::History.open(&h.app.ui));
+    let steps = exec(&mut h, "history.list", json!({}))["history"].as_array().map_or(0, Vec::len);
+    assert!(steps >= 2, "{steps} history steps");
+    assert_eq!(exposure(&h), 2.0);
+    click(&mut h, &format!("history:{}", steps - 2));
+    assert_eq!(exposure(&h), 1.0, "a click on a History row goes back to that step");
+
+    // a hidden left column comes back for the panel asked for
+    exec(&mut h, "view.leftPanel", json!({}));
+    assert!(!h.app.ui.left_panel);
+    exec(&mut h, "panel.activity", json!({}));
+    assert!(h.app.ui.left_panel && LeftPanel::History.open(&h.app.ui), "History asked for with the column hidden shows the column");
+
+    // in the Library they are the right-hand panels they always were
+    exec(&mut h, "module.library", json!({}));
+    exec(&mut h, "view.detail", json!({}));
+    exec(&mut h, "panel.versions", json!({}));
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Versions, Module::Library));
+}
+
+#[test]
+fn presets_has_its_buttons_in_the_header_and_its_list_under_it() {
+    let mut h = develop();
+    exec(&mut h, "view.classicPanel", json!({"panel": "presets", "open": true}));
+    let header = rect(&h, "classicPanel:presets");
+    let column = rect(&h, "panel:left_panel");
+    // the first row of the list sits right under the header: the panel's own title row is hidden behind it (a
+    // title row of another height would leave a gap, or cut into the list)
+    let rows: Vec<egui::Rect> = h
+        .app
+        .widgets
+        .iter()
+        .filter(|(w, r)| (w.starts_with("presetGroup:") || w.starts_with("preset:")) && r.top() >= header.bottom() - 0.5)
+        .map(|(_, r)| *r)
+        .collect();
+    let first = rows.iter().map(|r| r.top()).fold(f32::INFINITY, f32::min);
+    assert!(first - header.bottom() < 6.0, "the presets start {} pt under their header", first - header.bottom());
+    assert!(rows.iter().all(|r| column.contains_rect(*r) || r.top() >= column.bottom()), "a preset row outside the left column");
+    // Create Preset is the header's button
+    let create = h.app.widgets.iter().rev().find(|(w, _)| w == "icon:presetCreate").map(|(_, r)| *r).expect("Create Preset");
+    assert!(header.contains_rect(create), "Create Preset {create:?} is in the header {header:?}");
+    click(&mut h, "icon:presetCreate");
+    assert!(h.app.ui.dialog.is_some(), "Create Preset opens its dialog");
+}

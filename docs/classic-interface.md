@@ -1,6 +1,6 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (Develop's Classic panels: Histogram, tools, Basic … Calibration)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (Develop's left column: Navigator, Presets, Snapshots, History)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
@@ -22,8 +22,8 @@ the style.
 | CLASSIC.1 | Interface style, module state, `module.library` / `module.develop` / `view.interface` | done |
 | CLASSIC.2 | Classic frame: module picker, side columns, full-width filmstrip | done |
 | CLASSIC.3 | Develop right panels (Histogram, tools, Basic … Calibration) | done |
-| CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | next |
-| CLASSIC.5 | Desktop and web apps start in Classic | planned |
+| CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | done |
+| CLASSIC.5 | Desktop and web apps start in Classic | next |
 
 ## The window
 
@@ -35,8 +35,9 @@ Top to bottom (`crates/ui-egui/src/panels/classic/mod.rs`, `show`):
 3. **Left column, photo area, right column**, side by side. The columns are resized by dragging their inner edge
    (`panel:left_panel`, `panel:right_panel`; the widths are the Modern style's `leftWidth` / `rightWidth`). The left
    column is hidden with View ▸ My Photos Panel (F7); the right one shows whatever panel is open.
-   - Library: the sources on the left, Info or Keywords on the right when open.
-   - Develop: Classic's panels (below).
+   - Library: the sources on the left; Info, Keywords, Versions or History on the right when open.
+   - Develop: Navigator, Presets, Snapshots and History on the left, Classic's develop panels on the right (both
+     below).
 4. **Toolbar** under the photo area, between the columns: view modes, rating and flags, zoom.
 5. **Filmstrip** across the whole window (`panel:filmstrip`), in every view including the grids; View ▸ Filmstrip
    (F6, `/`) hides it. The loupe, Compare, Survey and Reference do not draw their own strip in this style.
@@ -82,6 +83,27 @@ presets, copy and paste, History and scripts see no difference between the style
   to Basic on screen), so a switch there would silently turn off part of another panel; they show one only to turn
   back on a section that was switched off in the Modern Edit panel.
 
+## Develop's left column
+
+Four panels under headers that fold them, the triangle and title at the left as Classic's left panels have them
+(`crates/ui-egui/src/panels/classic/develop_left.rs`):
+
+| Panel (`classicPanel:<id>`) | Shows | Open state |
+|---|---|---|
+| Navigator (`navigator`) | the whole photo (`classicNavigator`); zoomed in, the part the loupe shows is outlined and a click or drag there moves it; Fit and 100% under it | `view.navigator` (the Modern style's "Navigator while zoomed in") |
+| Presets (`presets`) | the Presets column as the Modern style has it: groups, hover preview, the Amount slider; Create Preset and the options menu are in the header (`icon:presetCreate`, `icon:presetMore`) | `panel.presets` (⇧P) |
+| Snapshots (`snapshots`) | the photo's versions: Create Version, named and automatic | `panel.versions` (⇧V) |
+| History (`history`) | the photo's edit steps, newest first; a click goes back to a step | `panel.activity` |
+
+- The Navigator is as tall as it needs; the three lists share the rest of the column (Presets and History twice
+  Snapshots' share) and each scrolls by itself.
+- In Develop, `panel.versions` and `panel.activity` fold Snapshots and History instead of opening a panel on the
+  right, and bring a hidden left column back for the panel asked for. In the Library they open Versions and History
+  on the right as before.
+- With the Navigator panel there, the loupe does not draw its own mini map while zoomed in. Hide the left column (F7)
+  and it does again.
+- `view.classicPanel {panel, open?}` folds these four too.
+
 ## Commands
 
 | Command | Default key | Menu | Does |
@@ -89,7 +111,7 @@ presets, copy and paste, History and scripts see no difference between the style
 | `module.library` | ⌘⌥1 | Window | Back to the Library, at the view and panel it was left with |
 | `module.develop` | ⌘⌥2 | Window | The active photo in the loupe with the develop panels |
 | `view.interface {style?}` | — | View (checkable) | `classic` or `modern`; without `style`, the other one |
-| `view.classicPanel {panel, open?}` | — | — | Fold or unfold a Develop panel (`histogram`, `basic`, `toneCurve`, `hsl`, `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`); without `open`, the other state |
+| `view.classicPanel {panel, open?}` | — | — | Fold or unfold a Develop panel: on the right `histogram`, `basic`, `toneCurve`, `hsl`, `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`; on the left `navigator`, `presets`, `snapshots`, `history`. Without `open`, the other state |
 
 They run from menus, keys, the control channel (`engine.execute`) and MCP (`--connect`), like every UI command.
 `ui.inspect` → `ui.classic` reports `{interface, module, libraryView, libraryRight}`; `interface` is `null` until a
@@ -110,16 +132,16 @@ In the Classic style two things are settled that the modules never show:
 
 - **An edit tool beside a grid.** Going to a grid from Develop gives the Library its own panel back (Info, Keywords
   or none).
-- **Develop without panels.** Closing the Edit panel in Develop brings it back; Versions and History open in
-  Develop without leaving it.
+- **Develop without panels.** Closing the Edit panel in Develop brings it back; Versions and History fold the
+  Snapshots and History panels of its left column.
 
 So the existing keys land where a Classic user expects without a second keymap: G, N and ⇧C go to the Library; E, C,
 H and M open the photo in Develop.
 
 ## Known limits
 
-- Develop's left column is the Library's sources until CLASSIC.4, and Versions and History still open in the right
-  column, in place of the panels.
+- Develop's left column has no Collections panel: change source in the Library (G), or move along the filmstrip.
+- In a short window the three lists of the left column get little room each; fold the ones not in use.
 - Basic, Tone Curve, HSL / Color, Color Grading and Effects have no switch of their own (see Switches above).
 - What Classic's panels have and LightCraft has no control for yet: the HSL view of all eight colours per attribute
   (the mixer shows one colour at a time), a lens profile picker (make, model, profile), the fringe eyedropper, the
@@ -144,7 +166,8 @@ the docking code are not edited, and every hook does nothing in the Modern style
 The Develop panels are a child module of the Edit panel (`panels/edit/classic.rs`, declared by one line in
 `edit.rs`), so they use its private pieces (histogram, curve editor, mixers, grading wheels) as they are. Two
 function boundaries were added without moving code: `edit::shown_settings` (the settings as the panel shows them)
-and, in `panels/right.rs`, `crop_tool` and `geometry` (the two halves of the Crop panel). What the Edit panel draws
+and, in `panels/right.rs`, `crop_tool` and `geometry` (the two halves of the Crop panel) and `versions_body` and
+`activity_body` (Versions and History without their titles). What the Edit panel draws
 inline (the Auto row, the profile row, white balance, the vignette style, the optics checkboxes) is drawn again in
 `classic.rs`; a fix to one of those upstream has to be repeated there.
 
@@ -153,10 +176,15 @@ upstream fails to compile until it is placed in the Classic frame. And
 `every_slider_of_the_edit_and_crop_panels_is_in_the_classic_panels` fails when the Modern Edit or Crop panel gains a
 slider that the Classic panels lack. The frame's tests also assert the Modern frame is drawn as before.
 
+The Presets panel is the Modern one drawn whole and moved up by its title row, which is clipped away under the
+Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes that row's height,
+`presets_has_its_buttons_in_the_header_and_its_list_under_it` fails.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | CLASSIC.4: Develop's left column: Navigator, Presets, Snapshots, History |
 | 2026-10-13 | minor | CLASSIC.3: Develop's panels in Classic's order, their folding and switches, `view.classicPanel` |
 | 2026-10-13 | minor | CLASSIC.2: the Classic window frame; a grid and the filmstrip share their thumbnails |
 | 2026-10-13 | major | Created with CLASSIC.1: interface style, module state and commands |
