@@ -2,6 +2,11 @@
 
 ## 2026-10-13
 
+### Show All Mask Overlays
+- Show All Mask Overlays (⌘⇧O) shows every visible mask in every overlay view. In White on Black, Image on Black,
+  Image on White and Colour on B&W each mask was drawn over the one before it, so only the last mask was left.
+## 2026-10-13
+
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you
   let go. On a 64 MP raw the first of those renders decoded the whole file again, which held up the loupe's

@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (LR-MASK-OVERLAYALL: Show All Mask Overlays shows the masks as their union) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -304,7 +304,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-MASK-FEATHER-EDGE | Refine mask edges | P2 | ✅ | `cmd:mask.refine`, `crates/pipeline/src/masks.rs` (`evaluate_one`) | Refine Edges slider per mask: guided filter on the photo's luminance snaps soft mask edges to the photo's edges (rendered on the CPU) |
 | LR-MASK-SLIDERS | Local adjustment sliders | P0 | ✅ | `cmd:mask.adjust`, `crates/pipeline/src/finish.rs` | every slider renders (CPU + GPU), incl. Noise, Moiré, Defringe (negative Defringe has no effect); no local curve or effect presets |
 | LR-MASK-OVERLAY | Mask overlay | P0 | ✅ | `cmd:view.maskOverlay`, `cmd:view.maskOverlayMode`, `cmd:view.maskOverlayColor`, `crates/pipeline/src/visualize.rs` | rendered alpha of the selected mask (CPU + GPU): colour, colour on B&W, image on black/white, white on black; ⇧O cycles while masking; successful local adjustments (including Amount) hide the overlay until manually shown again with O / the eye; shape/edge edits retain it; zoomed in, the overlay is rendered on the same sharp window as the plain view (zoom and pan unchanged; `crates/ui-egui/src/tests_preview_limit.rs`, `crates/pipeline/src/tests_window.rs`); no auto-show on hover |
-| LR-MASK-OVERLAYALL | Show all mask overlays | P1 | ✅ | `cmd:view.maskOverlayAll`, `crates/ui-egui/src/panels/masking.rs`, `crates/pipeline/src/visualize.rs` | one diagnostic tint over every visible mask at once (CPU + GPU): the masks still stack their adjustments as before — this only paints each mask's region together, so you can see all masked areas at a glance (⌘⇧O / Ctrl+Shift+O) |
+| LR-MASK-OVERLAYALL | Show all mask overlays | P1 | ✅ | `cmd:view.maskOverlayAll`, `crates/ui-egui/src/panels/masking.rs`, `crates/pipeline/src/visualize.rs` | one diagnostic tint over every visible mask at once (CPU + GPU): the masks still stack their adjustments as before — this only paints each mask's region together, so you can see all masked areas at a glance (⌘⇧O / Ctrl+Shift+O); the masks are shown as one selection (their union), in every overlay view |
 | LR-MASK-PINS | Pins | P1 | ✅ | `cmd:view.maskPins`, `crates/ui-egui/src/panels/detail.rs` | a pin per radial/linear/brush component: click selects its mask, drag moves it; no pins for range/AI components, no Auto mode |
 | LR-MASK-UPDATE | Recompute AI masks | P2 | ⬜ | | |
 | LR-MASK-SYNC | Copy masks to other photos | P1 | ✅ | `cmd:develop.copy` (`groups`) | |
@@ -789,6 +789,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | patch | LR-MASK-OVERLAYALL: the masks are shown as their union; one after another, every view but Color left only the last mask (its test failed on main); status unchanged (✅) |
 | 2026-10-11 | minor | LR-MERGE-HDR: HDR and panorama merges of raws without colour matrices (CR2, NEF, ARW…) write the colour they open with as DNG tags (issue #965); status unchanged |
 | 2026-10-12 | minor | LR-META-XMP: Read Metadata from File no longer auto-writes the sidecar it has just read, which added `lc:settings` and hid another app's later `crs:` edits (#934); status unchanged (✅) |
 | 2026-10-12 | patch | LR-IMP-CAMERA-COVERAGE: CR2 white level from the active area, not the saturated masked rows above it (issue #1272); status unchanged (🟡) |

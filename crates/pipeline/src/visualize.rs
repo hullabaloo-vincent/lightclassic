@@ -199,15 +199,26 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>,
             }
         }
         Overlay::AllMasks { view, color, opacity } => {
-            if let Some(planes) = masks {
-                for a in planes {
-                    if (a.width, a.height) == (img.width, img.height) {
-                        mask_view(img, a, view, color, opacity);
-                    }
-                }
+            // one view over the masks together: drawn one after another, each mask's view would paint over the last
+            // (the black of White on Black, the grey of Colour on B&W)
+            if let Some(a) = masks.and_then(|planes| union(planes, img.width, img.height)) {
+                mask_view(img, &a, view, color, opacity);
             }
         }
     }
+}
+
+/// The masks' alphas as one: selected where any of them selects, as strongly as the strongest. Planes that are not
+/// the image's size are left out; `None` when none is left.
+fn union(planes: &[Plane], width: usize, height: usize) -> Option<Plane> {
+    let mut fitting = planes.iter().filter(|a| (a.width, a.height) == (width, height) && width.checked_mul(height) == Some(a.data.len()));
+    let mut all = fitting.next()?.clone();
+    for a in fitting {
+        for (out, v) in all.data.iter_mut().zip(&a.data) {
+            *out = out.max(*v);
+        }
+    }
+    Some(all)
 }
 
 /// Draw mask alpha `a` over `img` as `view`.
@@ -435,8 +446,24 @@ mod tests {
         // a hidden mask is skipped
         s.masks[1].visible = false;
         let img2 = render(&src, &info, &s, &RenderRequest { overlay: o, ..RenderRequest::fit(80, 40) }).image;
-        assert_eq!(img2.data[in_r], plain.data[in_r], "hidden right mask not painted");
+        assert_eq!(img2.data[in_r], [0, 0, 0, 255], "hidden right mask not painted");
         assert_eq!(img2.data[in_l], [255; 4], "visible left mask still painted");
+        // the views that keep the photo keep it inside every mask: drawn one mask after another, the black around
+        // the second covered the first
+        s.masks[1].visible = true;
+        let o_image = Overlay::AllMasks { view: MaskView::ImageOnBlack, color: [255, 0, 0], opacity: 100 };
+        let img3 = render(&src, &info, &s, &RenderRequest { overlay: o_image, ..RenderRequest::fit(80, 40) }).image;
+        assert_eq!(img3.data[in_l], plain.data[in_l], "the photo inside the left mask");
+        assert_eq!(img3.data[in_r], plain.data[in_r], "the photo inside the right mask");
+        assert_eq!(img3.data[mid], [0, 0, 0, 255], "between the masks: black");
+        // alphas of another size than the image are left out; with none left there is nothing to draw
+        let (w, h) = (plain.width, plain.height);
+        let stray = Plane { width: 3, height: 2, data: vec![1.0; 6] };
+        assert!(union(&[], w, h).is_none());
+        assert!(union(std::slice::from_ref(&stray), w, h).is_none());
+        let nothing = Plane { width: w, height: h, data: vec![0.0; w * h] };
+        let both = union(&[nothing, stray], w, h).expect("the plane of the image's size");
+        assert!(both.data.iter().all(|a| *a == 0.0), "the stray plane's 1.0 leaked into the union");
         // parts round trip and a stable, distinct cache key
         let (k, v) = o.to_parts();
         assert_eq!(Overlay::from_parts(k, v), o);
