@@ -2,6 +2,16 @@
 
 ## 2026-10-13
 
+### Classic interface
+- View ▸ Classic Interface (also Settings ▸ Interface ▸ Interface Style) arranges the window the way Lightroom
+  Classic does: a Library | Develop module picker, panels down both sides, the toolbar under the photo and a
+  filmstrip across the whole window, in the Library's grids too. ⌘⌥1 and ⌘⌥2 switch modules, and the keys there
+  already land where you expect: G, N and ⇧C go to the Library; E, C, H and M open the photo in Develop.
+- Develop shows its tools (Crop, Remove, Red Eye, Masking) in a row above the panels. The panels themselves are still
+  the Edit panel's sections; Classic's own (Basic, Tone Curve, HSL…) come next.
+- The Modern arrangement is unchanged, and remains the one LightCraft starts in for now.
+## 2026-10-13
+
 ### Show All Mask Overlays
 - Show All Mask Overlays (⌘⇧O) shows every visible mask in every overlay view. In White on Black, Image on Black,
   Image on White and Colour on B&W each mask was drawn over the one before it, so only the last mask was left.

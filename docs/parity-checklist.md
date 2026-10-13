@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (KEYC-MODULES: Library / Develop modules; LR-PREF-INTERFACE: Classic / Modern interface style) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (LRC-UI-MODULEPICKER: the Classic window frame) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -52,10 +52,10 @@ cited here still exists. Formerly docs/parity.md.
 | X. Cross-cutting behaviours (BEHAV) | 23 | 6 | 1 | 1 | 8/8 (100%) | 7/10 (70%) |
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
-| Lightroom Classic extras | 34 | 17 | 35 | 7 | — | 24/26 (92%) |
-| **Total** | 409 | 53 | 72 | 34 | 193/201 (96%) | 146/158 (92%) |
+| Lightroom Classic extras | 34 | 18 | 35 | 7 | — | 24/27 (89%) |
+| **Total** | 409 | 54 | 72 | 34 | 193/201 (96%) | 146/159 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.6%** of 534 in-scope rows — P0 98.0% of 201 · P1 95.3% of 158 · P2 50.0% of 174.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.5%** of 535 in-scope rows — P0 98.0% of 201 · P1 95.0% of 159 · P2 50.0% of 174.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -764,6 +764,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-WEB-IMAGEINFO | Web gallery image info | OOS | 🚫 | | |
 | LRC-WEB-OUTPUT | Web gallery output | OOS | 🚫 | | |
 | LRC-WEB-UPLOAD | Web gallery upload | OOS | 🚫 | | |
+| LRC-UI-MODULEPICKER | Module picker and Classic window frame | P1 | 🟡 | `cmd:view.interface`, `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/panels/classic/mod.rs`, `docs/classic-interface.md` | Classic interface style: a Library / Develop picker under the top bar, columns on both sides, the toolbar under the photo and the filmstrip across the window (beside the grids too, sharing their thumbnails). Develop still shows the Modern Edit panel with the tools above it, and the Library's left column; no Map, Book, Slideshow, Print or Web module |
 | KEYC-PANELS | Classic panel keys (Tab, ⇧Tab, T, F5–F8, solo) | P2 | ⬜ | | |
 | KEYC-MODULES | Classic module switching (⌘⌥1–7) | P2 | 🟡 | `cmd:module.library`, `cmd:module.develop`, `crates/ui-egui/src/classic.rs`, `docs/classic-interface.md` | ⌘⌥1 Library, ⌘⌥2 Develop; the module also follows the view and the panel beside it. Map, Book, Slideshow, Print and Web have no module (⌘⌥3–7) |
 | KEYC-VIEWS | Classic view keys (E, G, C, N, L, F, I, ⇧R, ⌘⌥0) | P2 | 🟡 | `cmd:view.photoGrid`, `cmd:view.zoom100` | G works; E opens Edit (not loupe); no compare/survey/lights-out/screen modes |
@@ -789,6 +790,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | LRC-UI-MODULEPICKER added (🟡): the Classic interface style draws its own frame, with a module picker, side columns and a filmstrip across the window (CLASSIC.2) |
 | 2026-10-13 | patch | LR-MASK-OVERLAYALL: the masks are shown as their union; one after another, every view but Color left only the last mask (its test failed on main); status unchanged (✅) |
 | 2026-10-13 | minor | KEYC-MODULES 🚫 → 🟡: `module.library` (⌘⌥1) and `module.develop` (⌘⌥2); LR-PREF-INTERFACE: `view.interface` chooses the Classic or Modern interface style (CLASSIC.1, [classic-interface.md](classic-interface.md)) |
 | 2026-10-11 | minor | LR-MERGE-HDR: HDR and panorama merges of raws without colour matrices (CR2, NEF, ARW…) write the colour they open with as DNG tags (issue #965); status unchanged |
