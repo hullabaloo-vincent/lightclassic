@@ -23,6 +23,19 @@
   Image on White and Colour on B&W each mask was drawn over the one before it, so only the last mask was left.
 ## 2026-10-13
 
+### Canon raws shot in Adobe RGB, and dark photos
+- Canon CR2 files shot with the camera set to Adobe RGB (their names start with `_MG_`) no longer open muted. The
+  starting look is fitted to the camera's own JPEG, and that JPEG was read as sRGB; the camera says Adobe RGB only in
+  its maker note, which is now read. On 20 photos from an EOS Rebel T5 the colourfulness went from 88% to 96% of the
+  camera JPEG's, and every one is closer to it. The camera's preview shown while a photo loads has the right colours
+  too.
+- A dark photo full of colour (a candlelit interior, a night street) takes its colour from its camera JPEG like any
+  other. It used to count as colourless because its colours are dim, and opened grey-brown.
+- A dark photo with a lamp or another small bright light in it keeps a starting look in more cases: one such light
+  could make every fitted look fail its check, and the photo opened in the grey fallback.
+- Existing smart previews are refreshed when their originals are online, and cached renders are redrawn. Photos you
+  have edited keep their edits and start from the corrected colour. These looks follow the camera's JPEG: a very dark
+  high-ISO frame still opens as dark and as subdued as the camera rendered it.
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you
   let go. On a 64 MP raw the first of those renders decoded the whole file again, which held up the loupe's
