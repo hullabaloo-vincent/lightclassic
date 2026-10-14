@@ -366,6 +366,14 @@ LightCraft opens in the **Classic** interface style: Library and Develop modules
 a filmstrip across the window, as in Lightroom Classic. View ▸ Classic Interface switches to the Modern single-window
 layout shown in the screenshots here; the choice is remembered. See [docs/classic-interface.md](docs/classic-interface.md).
 
+**A Mac app rather than `cargo run`:** double-click [`scripts/Build LightCraft (macOS).command`](scripts/Build%20LightCraft%20(macOS).command)
+in Finder (or run it from a terminal). It checks for the Xcode Command Line Tools and Rust and offers to install or
+update them, builds `dist/LightCraft.app` for this Mac with HEIC support, signs it ad hoc, and offers to put it in
+Applications and open it. Built here rather than downloaded, the app is not quarantined, so it opens without a
+Gatekeeper warning. `--no-install` stops after the build; `LIGHTCRAFT_INSTALL_DIR` installs somewhere else. A
+rebuilt app counts as a new one to macOS, which may ask again before it reads Desktop, Documents or Pictures. The
+signed, notarized release image is a different script: `packaging/macos/package.sh`.
+
 CI defaults to line-table debug information and one build job per 1.5 GB of RAM
 available when it starts (at most one per CPU; 4 if memory can't be read), so an
 8 GB machine with 6 GB free builds with 4, and a busy machine with little free
