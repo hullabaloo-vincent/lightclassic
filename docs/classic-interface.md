@@ -1,6 +1,6 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (the Print module: a photo placed on a page, printed to an image file)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (Lens Corrections names the photo's lens profile and offers the lens database download; earlier: the Print module)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
@@ -79,7 +79,7 @@ presets, copy and paste, History and scripts see no difference between the style
 | HSL / Color (`hsl`), **B&W** in black and white | every colour at once (Red … Magenta) for one attribute, chosen by `button:hslView-hue` / `-sat` / `-lum`, or all three (`-all`); the targeted adjustment tool; Point Color under them. For a black-and-white photo the panel is titled B&W and holds the eight colours' share of the grey mix (`bw.*`), with Auto |
 | Color Grading (`colorGrading`) | the wheels, Blending and Balance |
 | Detail (`detail`) | Sharpening, AI Denoise, Noise Reduction |
-| Lens Corrections (`lensCorrections`) | Remove Chromatic Aberration, the lens profile, manual Distortion and Vignetting, Defringe, lateral CA |
+| Lens Corrections (`lensCorrections`) | Remove Chromatic Aberration, the lens profile (with the lens it is for and what it corrects, or the offer to download the lens database: [lens-profiles.md](lens-profiles.md)), manual Distortion and Vignetting, Defringe, lateral CA |
 | Transform (`transform`) | Upright (with guides), Constrain Crop, Vertical, Horizontal, Rotate, Aspect, Scale, Offsets |
 | Effects (`effects`) | the post-crop vignette and Grain |
 | Calibration (`calibration`) | Shadows tint and the three primaries |
@@ -219,6 +219,14 @@ upstream fails to compile until it is placed in the Classic frame. And
 slider that the Classic panels lack. The frame's tests also assert the Modern frame is drawn as before, and `tests/classic_accessibility.rs` walks the screen-reader tree of both modules, every Develop
 tool and every panel.
 
+Lens profiles ([lens-profiles.md](lens-profiles.md)) are this fork's work too, though not a Classic feature, and
+touch upstream's code more directly. New files: `crates/engine/src/cmd/lens_profiles.rs` and
+`crates/ui-egui/src/panels/lens_profiles.rs`. Hooks: two lines in `cmd/mod.rs`, `learn_lens` in `media.rs`'s
+`accept`, a kind name in `activity.rs`, `pump` in `lib.rs`, one line in each app's `main`, and the Optics section's
+note in `edit.rs`, replaced by one call (repeated in `edit/classic.rs`). Two upstream files are edited in place and
+will conflict if upstream changes the same code: `crates/lensdb/src/lib.rs` (the zoom that fills the frame) and
+`crates/engine/src/lens_profiles.rs` (the database is kept in a reloadable store instead of read once).
+
 The Presets panel is the Modern one drawn whole and moved up by its title row, which is clipped away under the
 Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes that row's height,
 `presets_has_its_buttons_in_the_header_and_its_list_under_it` fails.
@@ -227,6 +235,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | LENS.3: the Lens Corrections panel names the lens and what its profile corrects, or offers the lens database download (the same note in the Modern style's Optics section) |
 | 2026-10-13 | minor | PRINT.2: the Print module (page preview, Layout / Photo / Page / Print Job panels, `module.print`, `print.set`, `print.export`) |
 | 2026-10-13 | minor | CLASSIC.6: HSL / Color shows every colour per attribute and is the B&W panel in black and white; the top bar loses its cloud and chat icons |
 | 2026-10-13 | minor | CLASSIC.5: the desktop and web apps start in Classic; accessibility audit of the Classic layout |

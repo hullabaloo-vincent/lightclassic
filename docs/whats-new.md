@@ -2,6 +2,17 @@
 
 ## 2026-10-13
 
+### Lens profiles
+- Lens Corrections can now correct raws whose files carry no lens data, such as Canon CR2: click **Download Lens
+  Profiles** in the Lens Corrections panel (or Photo ▸ Download Lens Profiles). It fetches the lensfun project's
+  lens database (about 5 MB, CC BY-SA) once; nothing about your photos is sent.
+- Photos already in your library get their profile by themselves, in the background. The correction is switched on
+  for photos you have not edited; an edited photo keeps its settings and you tick Enable Lens Corrections yourself.
+- Under the switch the panel names the lens and what its profile corrects. Many zoom lenses in the database have
+  distortion data only; the slider that has nothing to scale is greyed out.
+- A corrected photo fills its frame. Before, a profile could leave a thin blank border along the edges.
+## 2026-10-13
+
 ### Print: a photo on a page
 - The Classic interface has a Print module (Library | Develop | Print, ⌘⌥6; File ▸ Print to File…, ⌘P). It shows a
   page with the photo on it: choose the page's shape and size, set how large the photo is, and drag it where you
