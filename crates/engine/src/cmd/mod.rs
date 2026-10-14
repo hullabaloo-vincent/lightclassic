@@ -21,6 +21,7 @@ mod face_recognize;
 pub mod filters;
 pub mod geocode;
 pub mod keywords;
+pub mod lens_profiles;
 pub mod library;
 pub mod lut_profiles;
 pub mod manage;
@@ -160,6 +161,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(sync::specs());
         v.extend(metadata::specs());
         v.extend(geocode::specs());
+        v.extend(lens_profiles::specs());
         v.extend(filters::specs());
         v.extend(denoise::specs());
         v.extend(face_models::specs());

@@ -1451,6 +1451,7 @@ impl crate::Session {
         {
             if let Some(info) = &src.info {
                 self.learn_as_shot_wb(r.photo, info);
+                self.learn_lens(r.photo, info);
             }
             self.media.insert_source(r.photo, r.level, src.clone());
         }
