@@ -2,8 +2,9 @@
 //!
 //! Classic is the Lightroom Classic arrangement: a module picker (Library | Develop), panels stacked down both
 //! sides and a filmstrip across the window. Modern is the single window with a tool strip. This file holds the state
-//! and its commands (`view.interface`, `module.library`, `module.develop`, `view.classicPanel`); the drawing is in
-//! `panels/classic` and, for the Develop panels, `panels/edit/classic.rs`.
+//! and its commands (`view.interface`, `module.library`, `module.develop`, `module.print`, `view.classicPanel`); the
+//! drawing is in `panels/classic` and, for the Develop panels, `panels/edit/classic.rs`. The Print module's page and
+//! its commands are in [`print`].
 //!
 //! The module is derived from the state every other command already sets, so nothing means something different per
 //! style: a grid, Compare, Survey or People is the Library; the loupe with an edit tool beside it is Develop
@@ -14,6 +15,8 @@ use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::state::{RightPanel, UiState, ViewMode};
+
+pub mod print;
 
 /// How the window is arranged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,15 +57,18 @@ pub enum Module {
     Library,
     /// One photo with the develop panels.
     Develop,
+    /// A photo laid out on a page, written as an image file ([`print`]). Only in the Classic style.
+    Print,
 }
 
 impl Module {
-    pub const ALL: [Self; 2] = [Self::Library, Self::Develop];
+    pub const ALL: [Self; 3] = [Self::Library, Self::Develop, Self::Print];
 
     pub fn id(self) -> &'static str {
         match self {
             Self::Library => "library",
             Self::Develop => "develop",
+            Self::Print => "print",
         }
     }
 
@@ -70,6 +76,7 @@ impl Module {
         match self {
             Self::Library => "Library",
             Self::Develop => "Develop",
+            Self::Print => "Print",
         }
     }
 
@@ -78,6 +85,7 @@ impl Module {
         match self {
             Self::Library => "module.library",
             Self::Develop => "module.develop",
+            Self::Print => "module.print",
         }
     }
 }
@@ -339,6 +347,11 @@ pub struct ClassicState {
     pub library_right: RightPanel,
     /// The attribute the HSL / Color panel shows.
     pub hsl: HslView,
+    /// The Print module's page.
+    pub print: print::PrintLayout,
+    /// The view and panel Print was opened over. Print is not a view of its own: it shows while these stand, and a
+    /// command that asks for another view or panel leaves it ([`reconcile`]).
+    pub print_over: Option<(ViewMode, RightPanel)>,
 }
 
 /// The style the window is drawn in.
@@ -376,6 +389,11 @@ fn loupe(view: ViewMode) -> bool {
 pub(crate) fn reconcile(app: &mut LightcraftApp) {
     let ui = &mut app.ui;
     let was = ui.classic.module;
+    // Print holds while the view and panel under it are as they were when it was opened
+    if was == Module::Print && style(ui) == InterfaceStyle::Classic && ui.classic.print_over == Some((ui.view, ui.right)) {
+        return;
+    }
+    ui.classic.print_over = None;
     if style(ui) == InterfaceStyle::Modern {
         ui.classic.module = if loupe(ui.view) && ui.right.is_edit_tool() { Module::Develop } else { Module::Library };
         if ui.classic.module == Module::Library {
@@ -425,9 +443,23 @@ fn library_right(ui: &UiState) -> RightPanel {
 }
 
 /// Go to `module`, in either style: Develop is the loupe with an edit tool, the Library the view left for it.
-fn enter(app: &mut LightcraftApp, module: Module) {
+fn enter(app: &mut LightcraftApp, module: Module) -> Result<(), String> {
     reconcile(app);
-    let from = app.ui.classic.module;
+    if module == Module::Print {
+        if !active(app) {
+            return Err("Print is a module of the Classic interface style: turn that on first (View ▸ Classic Interface)".to_string());
+        }
+        // a tool of the loupe has nothing to work on here, and an open edit step ends
+        app.ui.tool.clear();
+        let _ = app.session.end_interaction();
+        app.ui.classic.print_over = Some((app.ui.view, app.ui.right));
+        app.ui.classic.module = Module::Print;
+        return Ok(());
+    }
+    // out of Print, the view under it decides where it was opened from
+    app.ui.classic.print_over = None;
+    let from = if loupe(app.ui.view) && app.ui.right.is_edit_tool() { Module::Develop } else { Module::Library };
+    let from = if app.ui.classic.module == Module::Print { from } else { app.ui.classic.module };
     let ui = &mut app.ui;
     match module {
         Module::Develop => {
@@ -445,9 +477,10 @@ fn enter(app: &mut LightcraftApp, module: Module) {
             ui.tool.clear();
             let _ = app.session.end_interaction();
         }
-        Module::Library => {}
+        Module::Library | Module::Print => {}
     }
     app.ui.classic.module = module;
+    Ok(())
 }
 
 /// The style and module commands; `None` for any other id.
@@ -455,11 +488,18 @@ pub(crate) fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
     let module = match id {
         "module.library" => Module::Library,
         "module.develop" => Module::Develop,
+        "module.print" => Module::Print,
         "view.interface" => return Some(interface(app, p)),
         "view.classicPanel" => return Some(panel_command(app, p)),
+        "print.set" => return Some(print::set(app, p)),
+        // from the menu or its key, outside Print: go there first, to see the page that would be written
+        "print.export" if app.ui.classic.module != Module::Print && p.as_object().is_none_or(|o| o.is_empty()) => Module::Print,
+        "print.export" => return Some(print::export(app, p)),
         _ => return None,
     };
-    enter(app, module);
+    if let Err(e) = enter(app, module) {
+        return Some(Err(e));
+    }
     Some(Ok(json!({"module": app.ui.classic.module})))
 }
 
@@ -487,6 +527,7 @@ pub(crate) fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
         "view.interface" => Some(active(app)),
         "module.library" => Some(app.ui.classic.module == Module::Library),
         "module.develop" => Some(app.ui.classic.module == Module::Develop),
+        "module.print" => Some(app.ui.classic.module == Module::Print),
         // in Classic Develop these fold a panel of the left column instead of opening one on the right
         "panel.versions" | "panel.activity" if active(app) && app.ui.classic.module == Module::Develop => {
             let panel = if id == "panel.versions" { LeftPanel::Snapshots } else { LeftPanel::History };

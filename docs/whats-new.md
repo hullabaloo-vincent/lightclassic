@@ -2,6 +2,15 @@
 
 ## 2026-10-13
 
+### Print: a photo on a page
+- The Classic interface has a Print module (Library | Develop | Print, ⌘⌥6; File ▸ Print to File…, ⌘P). It shows a
+  page with the photo on it: choose the page's shape and size, set how large the photo is, and drag it where you
+  want it. It stays on the page and catches on the centre lines.
+- Print to File writes the page as a JPEG, PNG or TIFF, one file for each selected photo, with the background colour
+  you chose (white, light, grey or black). What you see on the page is what the file holds.
+- The same is there for scripts: `app.export` takes a `canvas` (its size, background, the photo's share and place).
+## 2026-10-13
+
 ### Classic interface: colours, black and white, and a quieter top bar
 - HSL / Color shows all eight colours at once, for Hue, Saturation or Luminance, or for all three (All). It showed
   one colour at a time.

@@ -7,6 +7,7 @@
 
 mod develop_left;
 mod navigator;
+mod print;
 
 use egui::{Align2, Sense, vec2};
 use serde_json::json;
@@ -55,7 +56,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         register(ui.ctx(), "panel:filmstrip", r.response.rect);
     }
     let frame = egui::Frame::NONE.fill(t.chrome);
-    let right = app.ui.right != RightPanel::None;
+    // Print always has its panels; the other modules show the panel that is open
+    let printing = app.ui.classic.module == Module::Print;
+    let right = printing || app.ui.right != RightPanel::None;
     if app.ui.left_panel {
         let reserve = if right { RIGHT_WIDTH.min } else { 0.0 };
         let dragged = super::resizable_side(ui, true, "left_panel", frame, app.ui.left_width, LEFT_WIDTH, reserve, |ui| {
@@ -68,7 +71,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if right {
         let dragged = super::resizable_side(ui, false, "right_panel", frame, app.ui.right_width, RIGHT_WIDTH, 0.0, |ui| {
             // Develop's own column, except while the profile browser has the whole of it
-            if app.ui.classic.module == Module::Develop && app.ui.right != RightPanel::Profiles {
+            if printing {
+                print::panels(app, ui);
+            } else if app.ui.classic.module == Module::Develop && app.ui.right != RightPanel::Profiles {
                 super::edit::classic::show(app, ui);
             } else {
                 super::right::show(app, ui);
@@ -77,6 +82,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         if let Some(width) = dragged {
             app.ui.right_width = width;
         }
+    }
+    if printing {
+        // the page, in place of a view of the photo and its toolbar
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| print::page(app, ui));
+        return;
     }
     super::bottombar::show(app, ui);
     let bg = match app.ui.view {

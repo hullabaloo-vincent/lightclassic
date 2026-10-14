@@ -53,10 +53,11 @@ fn the_classic_frame_has_a_module_picker_columns_and_a_filmstrip_across_the_wind
     let mut h = frame(true);
     assert_eq!(h.app.ui.classic.module, Module::Library);
 
-    // the module picker: Library | Develop at the right, under the top bar
-    let (library, develop) = (rect(&h, "module:library"), rect(&h, "module:develop"));
+    // the module picker: Library | Develop | Print at the right, under the top bar
+    let (library, develop, print) = (rect(&h, "module:library"), rect(&h, "module:develop"), rect(&h, "module:print"));
     assert!(library.right() <= develop.left() + 1.5, "Library {library:?} is left of Develop {develop:?}");
-    assert!(develop.right() > SIZE[0] - 40.0, "the picker sits at the right: {develop:?}");
+    assert!(develop.right() <= print.left() + 1.5, "Develop {develop:?} is left of Print {print:?}");
+    assert!(print.right() > SIZE[0] - 40.0, "the picker sits at the right: {print:?}");
     assert!(widget(&h, "icon:edit").is_none(), "the Modern tool strip is drawn in the Classic frame");
 
     // the filmstrip runs under both columns, the whole width of the window
@@ -542,4 +543,179 @@ fn the_classic_top_bar_has_no_cloud_or_chat_icon() {
     );
     let modern = frame(false);
     assert!(widget(&modern, "icon:cloud").is_some() && widget(&modern, "icon:discord").is_some(), "the Modern top bar keeps both");
+}
+
+// ------------------------------------------------------------------------------------ Print
+
+use crate::classic::print::PrintLayout;
+
+/// The demo library in the Classic Print module.
+fn printing() -> Headless {
+    let mut app = app(true);
+    app.run("module.print", json!({})).expect("Print opens");
+    let mut h = Headless::new(app, SIZE, 1.0);
+    assert!(h.settle(SETTLE), "Print never comes to rest");
+    h
+}
+
+/// Where the photo's centre is on the page, as fractions of it, and its larger share of the page.
+fn on_page(h: &Headless) -> (f32, f32, f32) {
+    let (page, photo) = (rect(h, "printPage"), rect(h, "printPhoto"));
+    let x = (photo.center().x - page.left()) / page.width();
+    let y = (photo.center().y - page.top()) / page.height();
+    (x, y, (photo.width() / page.width()).max(photo.height() / page.height()))
+}
+
+#[test]
+fn print_shows_the_page_with_the_photo_where_the_layout_puts_it() {
+    let mut h = printing();
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    assert_eq!(h.app.ui.classic.print, PrintLayout::default());
+    // the page as it starts: square, the photo fitted inside 85 % of it, in the middle
+    let page = rect(&h, "printPage");
+    assert!((page.width() - page.height()).abs() < 1.0, "the page is square: {page:?}");
+    assert!(page.contains_rect(rect(&h, "printPhoto")));
+    let (x, y, share) = on_page(&h);
+    assert!((x - 0.5).abs() < 0.005 && (y - 0.5).abs() < 0.005 && (share - 0.85).abs() < 0.01, "at {x} {y}, {share} of the page");
+    // Print's own panels, in place of the loupe and its tools
+    for id in [
+        "classicPanel:printLayout",
+        "classicPanel:printPhoto",
+        "classicPanel:printPage",
+        "classicPanel:printJob",
+        "slider:print.size",
+        "button:printToFile",
+    ] {
+        assert!(widget(&h, id).is_some(), "no {id} in Print");
+    }
+    for id in ["slider:light.exposure", "canvas:image", "icon:crop", "classicPanel:basic"] {
+        assert!(widget(&h, id).is_none(), "{id} is drawn in Print");
+    }
+    assert!(widget(&h, "panel:filmstrip").is_some() && widget(&h, "sidebarTitle").is_some(), "the filmstrip and the sources, to choose photos");
+
+    // a wide page, and the photo a quarter of the way across it at half the size
+    let page = exec(&mut h, "print.set", json!({"shape": "16x9", "longEdge": 4000, "size": 0.5, "x": 0.25}));
+    assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(4000), Some(2250)));
+    assert_eq!(h.app.ui.classic.print.shape(), Some("16x9"));
+    let drawn = rect(&h, "printPage");
+    assert!((drawn.width() / drawn.height() - 16.0 / 9.0).abs() < 0.01, "{drawn:?}");
+    let (x, y, share) = on_page(&h);
+    assert!((x - 0.25).abs() < 0.005 && (y - 0.5).abs() < 0.005 && (share - 0.5).abs() < 0.01, "at {x} {y}, {share} of the page");
+    // the long edge alone keeps the shape; the background has names
+    let page = exec(&mut h, "print.set", json!({"longEdge": 2000, "background": "black"}));
+    assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(2000), Some(1125)));
+    assert_eq!(h.app.ui.classic.print.canvas.background, [0, 0, 0]);
+
+    // Print holds while the photo changes, and a view command leaves it
+    let other = h.app.session.visible_cloned()[1].0;
+    exec(&mut h, "library.select", json!({"ids": [other]}));
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    exec(&mut h, "view.gridToggle", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Library);
+    assert!(widget(&h, "printPage").is_none());
+    // from Develop and back: Develop is still there under it
+    exec(&mut h, "module.develop", json!({}));
+    exec(&mut h, "module.print", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    exec(&mut h, "module.library", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Library, "Library from Print over Develop is the Library, not Develop");
+    assert!(matches!(h.app.ui.view, ViewMode::PhotoGrid | ViewMode::SquareGrid), "back at the Library's grid: {:?}", h.app.ui.view);
+}
+
+#[test]
+fn dragging_the_photo_moves_it_and_keeps_it_on_the_page() {
+    let mut h = printing();
+    exec(&mut h, "print.set", json!({"size": 0.4}));
+    let drag = |h: &mut Headless, dx: f32, dy: f32| {
+        let r = h.request("ui.dragWidget", json!({"id": "printPhoto", "dx": dx, "dy": dy, "steps": 8}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+    };
+    let before = h.app.ui.classic.print.canvas;
+    drag(&mut h, 120.0, -70.0);
+    let after = h.app.ui.classic.print.canvas;
+    assert!(after.x > before.x + 0.05 && after.y < before.y - 0.03, "{before:?} to {after:?}");
+    let (x, y, _) = on_page(&h);
+    assert!((x - after.x).abs() < 0.005 && (y - after.y).abs() < 0.005, "the page shows the photo where the layout says");
+    // far past the corner: it stops with its edges on the page's
+    drag(&mut h, 4000.0, 4000.0);
+    let (page, photo) = (rect(&h, "printPage"), rect(&h, "printPhoto"));
+    assert!(page.expand(0.6).contains_rect(photo), "the photo {photo:?} left the page {page:?}");
+    assert!(
+        (photo.right() - page.right()).abs() < 1.5 && (photo.bottom() - page.bottom()).abs() < 1.5,
+        "it rests in the corner: {photo:?} on {page:?}"
+    );
+    // near the middle it catches on the centre lines
+    exec(&mut h, "print.set", json!({"x": 0.506, "y": 0.494}));
+    drag(&mut h, 1.0, 0.0);
+    let caught = h.app.ui.classic.print.canvas;
+    assert_eq!((caught.x, caught.y), (0.5, 0.5), "a photo let go near the middle is in the middle");
+}
+
+#[test]
+fn print_settings_are_checked_and_print_is_a_classic_module() {
+    let mut h = printing();
+    let bad = [
+        json!({"colour": "white"}),
+        json!({"shape": "7x7"}),
+        json!({"size": 3}),
+        json!({"x": -0.2}),
+        json!({"width": 5}),
+        json!({"longEdge": 99999}),
+        json!({"width": 20000, "height": 20000}),
+        json!({"background": "pink"}),
+        json!({"background": [1, 2]}),
+        json!({"format": "gif"}),
+        json!({"quality": 0}),
+        json!({"size": 0.5, "y": "low"}),
+    ];
+    for params in bad {
+        let r = h.request("engine.execute", json!({"command": "print.set", "params": params.clone()}), T);
+        assert_eq!(r["ok"], false, "{params} is refused: {r}");
+        assert_eq!(h.app.ui.classic.print, PrintLayout::default(), "{params}: refused, yet something changed");
+    }
+    for params in [json!({"dir": 3}), json!({"folder": "/tmp"})] {
+        let r = h.request("engine.execute", json!({"command": "print.export", "params": params.clone()}), T);
+        assert_eq!(r["ok"], false, "{params} is refused: {r}");
+    }
+    // the layout is saved with the other settings
+    exec(&mut h, "print.set", json!({"shape": "4x5", "size": 0.7, "format": "png"}));
+    let saved = serde_json::to_value(&h.app.ui).expect("the state serializes");
+    let loaded: crate::UiState = serde_json::from_value(saved).expect("and loads");
+    assert_eq!(loaded.classic.print, h.app.ui.classic.print);
+    assert_eq!(loaded.classic.module, Module::Print);
+
+    // the Modern style has no Print module, and says where it is
+    let mut modern = app(false);
+    let e = modern.run("module.print", json!({})).expect_err("no Print in the Modern style");
+    assert!(e.contains("Classic"), "{e}");
+    assert_ne!(modern.ui.classic.module, Module::Print);
+}
+
+#[test]
+fn print_to_file_writes_the_page_with_the_photo_on_it() {
+    let written: std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>> = Default::default();
+    let sink = written.clone();
+    let mut app = app(true);
+    app.services.write = Some(Box::new(move |path: &str, bytes: &[u8]| {
+        sink.lock().unwrap().push((path.to_string(), bytes.to_vec()));
+        Ok(())
+    }));
+    app.run("module.print", json!({})).expect("Print opens");
+    app.run("print.set", json!({"width": 400, "height": 300, "size": 0.5, "x": 0.5, "y": 0.5, "background": "grey", "format": "png"}))
+        .expect("the page is set");
+    let dir = std::env::temp_dir().join("lc-print-test").to_string_lossy().into_owned();
+    let out = app.run("print.export", json!({"dir": dir, "background": false})).expect("prints");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
+    assert_eq!(app.ui.classic.print.dir, dir, "the folder is remembered for Print");
+    assert!(app.session.last_export.is_none(), "Print left its page in the Export dialog's last settings");
+    let files = written.lock().unwrap();
+    let (path, bytes) = files.first().expect("a file was written");
+    assert!(path.starts_with(&dir) && path.ends_with("-print.png"), "{path}");
+    let img = lightcraft_codecs::decode(bytes, Default::default()).expect("a PNG").to_srgb8();
+    assert_eq!((img.width, img.height), (400, 300), "the file is the page");
+    let at = |x: usize, y: usize| img.data[y * 400 + x];
+    assert_eq!((at(3, 3), at(396, 296)), ([128, 128, 128, 255], [128, 128, 128, 255]), "the page's corners are its background");
+    let photo = (150..250).flat_map(|x| (120..180).map(move |y| (x, y))).filter(|(x, y)| at(*x, *y) != [128, 128, 128, 255]).count();
+    assert!(photo > 3000, "the photo is not in the middle of the page ({photo} of 6000 pixels)");
 }

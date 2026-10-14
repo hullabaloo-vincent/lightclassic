@@ -1,5 +1,5 @@
-//! The accessibility audit of `accessibility.rs` over the Classic interface style: the module picker, the Library, and
-//! Develop with each tool and with every panel unfolded. Fails on an interactive node with no name or a slider without
+//! The accessibility audit of `accessibility.rs` over the Classic interface style: the module picker, the Library,
+//! Develop with each tool and with every panel unfolded, and Print. Fails on an interactive node with no name or a slider without
 //! its value and range.
 use egui::accesskit::Role;
 use egui::vec2;
@@ -129,6 +129,11 @@ fn every_interactive_node_has_a_name_in_both_classic_modules() {
         assert!(names.iter().any(|n| n == title), "Develop: the {title} panel's header is named");
     }
     problems.extend(audit(&h, "Develop/every panel"));
+
+    // Print: the page and its panels
+    let h = harness(&[("module.print", none.clone())]);
+    assert_eq!(h.state().ui.classic.module, Module::Print);
+    problems.extend(audit(&h, "Print"));
 
     problems.sort();
     problems.dedup();

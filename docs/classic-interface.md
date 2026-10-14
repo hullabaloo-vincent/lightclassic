@@ -1,6 +1,6 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (HSL / Color shows every colour and is B&W in black and white; no cloud or chat icon in the top bar)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (the Print module: a photo placed on a page, printed to an image file)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
@@ -24,6 +24,7 @@ the style.
 | CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | done |
 | CLASSIC.5 | Desktop and web apps start in Classic | done |
 | CLASSIC.6 | HSL / Color with every colour, B&W panel; top bar without cloud and chat icons | done |
+| PRINT.1, PRINT.2 | Print module: the photo on a page of a chosen shape and size, placed by hand, written as an image | done |
 
 ## Which style an app starts in
 
@@ -114,12 +115,40 @@ Four panels under headers that fold them, the triangle and title at the left as 
   and it does again.
 - `view.classicPanel {panel, open?}` folds these four too.
 
+## The Print module
+
+Print lays the active photo out on a page and writes the page as an image file: Lightroom Classic's Print module
+with "Print to: JPEG File". It is the third entry of the module picker (`module:print`, ⌘⌥6; File ▸ Print to File…,
+⌘P, goes there too).
+
+- **The page** is in the middle of the window (`printPage`), with the photo on it (`printPhoto`). Drag the photo to
+  move it: it stays on the page and catches on the page's centre lines. The filmstrip and the sources on the left
+  choose the photo.
+- **Layout** (right column): the page's shape (1 : 1, 4 : 5, 5 : 4, 2 : 3, 3 : 2, 9 : 16, 16 : 9, A4, A4 wide) and
+  its long edge in pixels.
+- **Photo**: its size (the share of the page it is fitted inside), where its centre sits across and down the page,
+  and buttons that centre it.
+- **Page**: the background (white, light, grey, black; any colour by command).
+- **Print Job**: JPEG (with quality), PNG or TIFF; the folder; **Print to File** writes one file for each selected
+  photo, named `<name>-print`, in the background with a row in the activity stack.
+
+What is on screen is what is written: the photo's rectangle comes from the same `Canvas` the export engine uses
+(`crates/engine/src/export.rs`), and the layout is in fractions of the page, so it is the same picture at any page
+size. The layout is saved with the other UI settings (`ui.classic.print`).
+
+Print is not a view of its own: it shows over the view it was opened from and holds while that view and its panel
+stand, so choosing another photo keeps it and any command that asks for a view or a panel (G, E, D, C…) leaves it.
+It exists only in the Classic style; `module.print` says so in the Modern one.
+
 ## Commands
 
 | Command | Default key | Menu | Does |
 |---|---|---|---|
 | `module.library` | ⌘⌥1 | Window | Back to the Library, at the view and panel it was left with |
 | `module.develop` | ⌘⌥2 | Window | The active photo in the loupe with the develop panels |
+| `module.print` | ⌘⌥6 | Window | The Print module (Classic style only) |
+| `print.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}` | — | — | Change the page: `shape` is a key of the list above (`1x1`, `4x5`, `5x4`, `2x3`, `3x2`, `9x16`, `16x9`, `a4`, `a4wide`), sizes are pixels, `size` 0.02..1, `x` / `y` 0..1, `background` a name (`white`, `light`, `grey`, `black`) or `[r, g, b]`, `format` `jpeg` / `png` / `tiff`. Nothing changes unless all of it can be applied |
+| `print.export {dir?, path?, ids?, background?}` | ⌘P | File (Print to File…) | Write the page for each selected photo. From the menu outside Print it opens Print first |
 | `view.interface {style?}` | — | View (checkable) | `classic` or `modern`; without `style`, the other one |
 | `view.classicPanel {panel, open?}` | — | — | Fold or unfold a Develop panel: on the right `histogram`, `basic`, `toneCurve`, `hsl`, `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`; on the left `navigator`, `presets`, `snapshots`, `history`. Without `open`, the other state |
 
@@ -163,7 +192,10 @@ H and M open the photo in Develop.
   is the loupe, not Develop; R is Radial Gradient, not Crop).
 - Quick Develop (the Edit panel beside a grid with several photos selected) is not reachable in the Classic Library
   yet.
-- Map, Book, Slideshow, Print and Web have no module.
+- Map, Book, Slideshow and Web have no module.
+- Print is one photo to a page. No picture packages or contact sheets in the module (the contact-sheet PDF is still
+  File ▸ Contact Sheet…), no margins or guides, no stroke border, no identity plate, no printer output or printer
+  profiles, no templates; the page is 8 bits per channel in sRGB.
 - Wording is unchanged: Albums, My Photos, Versions.
 
 ## Keeping up with upstream
@@ -195,6 +227,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | PRINT.2: the Print module (page preview, Layout / Photo / Page / Print Job panels, `module.print`, `print.set`, `print.export`) |
 | 2026-10-13 | minor | CLASSIC.6: HSL / Color shows every colour per attribute and is the B&W panel in black and white; the top bar loses its cloud and chat icons |
 | 2026-10-13 | minor | CLASSIC.5: the desktop and web apps start in Classic; accessibility audit of the Classic layout |
 | 2026-10-13 | minor | CLASSIC.4: Develop's left column: Navigator, Presets, Snapshots, History |

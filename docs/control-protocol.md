@@ -119,7 +119,10 @@ while `lightcraft-cli snapshot` and the headless MCP server start Modern), and
 `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration` on the right; `navigator`,
 `presets`, `snapshots`, `history` on the left) and replies `{panel, open}`; the
 headers are the widgets `classicPanel:<id>`, their switches `classicSwitch:<id>`, and the sliders keep their ids
-(`slider:light.exposure`). The module follows the view and the panel beside
+(`slider:light.exposure`). The Classic Print module is `module.print`; `print.set {shape?, longEdge?, width?, height?,
+background?, size?, x?, y?, format?, quality?, dir?}` changes its page and replies the layout (`ui.classic.print`),
+`print.export {dir?, path?, ids?, background?}` writes it for the selected photos, and the page and the photo on it
+are the widgets `printPage` and `printPhoto` (drag the photo with `ui.dragWidget`). The module follows the view and the panel beside
 it, so scripts written for the Modern style keep working: see [classic-interface.md](classic-interface.md).
 
 Mask brushing uses the UI command `tool.brush` through `engine.execute`. With `{}` it activates
