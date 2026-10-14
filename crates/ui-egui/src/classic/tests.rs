@@ -234,3 +234,53 @@ fn keys_and_the_control_channel_reach_the_modules() {
     h.step();
     assert_eq!(module(&mut h), "library");
 }
+
+/// Show Clipping (J, or a click on the histogram) marks the clipped pixels themselves in the loupe, in both styles.
+/// It used to draw a red or blue frame around the photo and leave the pixels alone.
+#[test]
+fn show_clipping_paints_the_clipped_pixels_in_the_loupe() {
+    use lightcraft_pipeline::Overlay;
+    use lightcraft_pipeline::visualize::CLIPPED_WHITE;
+    let settle = Duration::from_secs(120);
+    let painted = |img: &egui::ColorImage, area: egui::Rect| {
+        let [w, h] = img.size;
+        let (x0, x1) = (area.left().max(0.0) as usize, (area.right() as usize).min(w));
+        let (y0, y1) = (area.top().max(0.0) as usize, (area.bottom() as usize).min(h));
+        let red = egui::Color32::from_rgb(CLIPPED_WHITE[0], CLIPPED_WHITE[1], CLIPPED_WHITE[2]);
+        (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|(x, y)| img.pixels[y * w + x] == red).count()
+    };
+    for style in ["modern", "classic"] {
+        let mut app = app();
+        app.run("view.interface", json!({"style": style})).expect("the style is set");
+        app.ui.view = ViewMode::Detail;
+        app.ui.right = RightPanel::Edit;
+        // four stops over: large parts of the photo are blown
+        app.run("develop.set", json!({"control": "light.exposure", "value": 4.0})).expect("exposure");
+        let mut h = Headless::new(app, [1400.0, 900.0], 1.0);
+        assert!(h.settle(settle), "{style}: the loupe never comes to rest");
+        let develop = |h: &Headless| h.app.session.active().and_then(|id| h.app.session.develop_of(id)).expect("a photo is open");
+        assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::None);
+        let before = h.snapshot(settle);
+        let photo = h.app.image_rect.expect("the loupe shows the photo");
+        assert_eq!(painted(&before, photo), 0, "{style}: clipping is marked before it is asked for");
+
+        key(&mut h, "J", json!({}));
+        assert!(h.app.ui.show_clipping, "{style}: J turns Show Clipping on");
+        assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::Clipping);
+        assert!(h.settle(settle));
+        let after = h.snapshot(settle);
+        let photo = h.app.image_rect.expect("the loupe shows the photo");
+        let marked = painted(&after, photo);
+        assert!(marked > 500, "{style}: only {marked} blown pixels are marked in the photo");
+        // nothing is drawn around the photo: the pixels beside it are as they were
+        let around = photo.expand(4.0);
+        let [w, _] = after.size;
+        let edge: Vec<(usize, usize)> = (around.top() as usize..around.bottom() as usize).map(|y| (around.left() as usize, y)).collect();
+        assert!(edge.iter().all(|(x, y)| after.pixels[y * w + x] == before.pixels[y * w + x]), "{style}: a frame is drawn around the photo");
+
+        // a mask being edited keeps the loupe: its overlay comes first
+        key(&mut h, "J", json!({}));
+        assert!(!h.app.ui.show_clipping);
+        assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::None);
+    }
+}

@@ -18,10 +18,11 @@ pub(super) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), PHOTO_H), Sense::hover());
     ui.painter().rect_filled(area, 0.0, t.canvas);
-    // The loupe's own render when it is of this photo (it follows a slider as it moves), else the thumbnail, which
-    // the filmstrip keeps too.
+    // The loupe's own render when it is of this photo and shows the photo itself (it follows a slider as it moves),
+    // else the thumbnail, which the filmstrip keeps too. A diagnostic view (a mask, clipping) stays in the loupe.
     super::super::grid::request_thumb(app, id, 256, 8);
-    let tex = app.renderer.textures.get(&Slot::Main).filter(|tex| tex.photo == id).or_else(|| app.renderer.thumb(id));
+    let plain = app.session.develop_of(id).is_none_or(|d| super::super::detail::view_overlay(app, &d) == lightcraft_pipeline::Overlay::None);
+    let tex = app.renderer.textures.get(&Slot::Main).filter(|tex| plain && tex.photo == id).or_else(|| app.renderer.thumb(id));
     if let Some(tex) = tex {
         let [w, h] = tex.size.map(|edge| edge.max(1) as f32);
         let fit = area.shrink(8.0);

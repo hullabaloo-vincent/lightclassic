@@ -2,6 +2,13 @@
 
 ## 2026-10-13
 
+### Show Clipping
+- Show Clipping (J, or a click on the histogram) paints the blown highlights red and the crushed shadows blue in the
+  photo itself, also zoomed in to 100%. It used to draw a red or blue frame around the photo and leave you to find
+  them. A strongly saturated colour (a red flag, a deep blue sky) is not painted: only pixels that are themselves
+  nearly white or nearly black.
+## 2026-10-13
+
 ### Classic interface
 - View ▸ Classic Interface (also Settings ▸ Interface ▸ Interface Style) arranges the window the way Lightroom
   Classic does: a Library | Develop module picker, panels down both sides, the toolbar under the photo and a

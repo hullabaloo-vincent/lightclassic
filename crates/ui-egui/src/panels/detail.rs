@@ -250,10 +250,12 @@ fn animated_rect(ctx: &egui::Context, anim: &mut bool, target: Rect) -> Rect {
 }
 
 /// Whether an overlay can be rendered on a region tile without changing what the tile means.
-/// Mask overlays are evaluated from the same mask alpha as the full render; the other diagnostic
-/// overlays either need whole-frame context or deliberately replace the loupe.
+/// Mask overlays are evaluated from the same mask alpha as the full render, and Show Clipping reads
+/// each pixel by itself; the other diagnostic overlays either need whole-frame context or
+/// deliberately replace the loupe.
 pub(crate) fn overlay_supports_window(overlay: lightcraft_pipeline::Overlay) -> bool {
-    matches!(overlay, lightcraft_pipeline::Overlay::None | lightcraft_pipeline::Overlay::Mask { .. })
+    use lightcraft_pipeline::Overlay;
+    matches!(overlay, Overlay::None | Overlay::Mask { .. } | Overlay::Clipping)
 }
 
 /// What a window render of the loupe needs to know about the view it belongs to.
@@ -685,9 +687,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     if app.ui.before_after == BeforeAfter::SplitTopBottom {
         p.line_segment([pos2(img_rect.left(), line.y), pos2(img_rect.right(), line.y)], Stroke::new(1.5, Color32::WHITE));
-    }
-    if app.ui.show_clipping && !show_before && !fullscreen {
-        clipping_overlay(app, &p, img_rect);
     }
     register(ui.ctx(), "canvas:image", img_rect);
     let map = CanvasMap::new(&frame, img_rect);
@@ -1236,7 +1235,7 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
 }
 
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
-/// Visualize Spots).
+/// Visualize Spots, Visualize HDR, and under all of those Show Clipping).
 pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcraft_pipeline::Overlay {
     use lightcraft_pipeline::{MaskView, Overlay};
     if app.ui.fullscreen {
@@ -1273,20 +1272,11 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     if edit && app.ui.hdr_visualize && d.hdr.enabled {
         return Overlay::HdrRange;
     }
-    Overlay::None
-}
-
-fn clipping_overlay(app: &LightcraftApp, p: &egui::Painter, r: Rect) {
-    // Highlight clipped regions using the histogram's extremes isn't spatial; show a subtle frame hint.
-    if let Some(h) = app.renderer.textures.get(&Slot::Main).and_then(|t| t.histogram.as_ref()) {
-        let (lo, hi) = h.clipping();
-        if hi > 0.003 {
-            p.rect_stroke(r, 0.0, Stroke::new(2.0, Color32::from_rgb(255, 60, 60)), StrokeKind::Outside);
-        }
-        if lo > 0.003 {
-            p.rect_stroke(r.expand(3.0), 0.0, Stroke::new(2.0, Color32::from_rgb(60, 120, 255)), StrokeKind::Outside);
-        }
+    // Show Clipping (J, or a click on the histogram): the blown and crushed pixels themselves, painted
+    if app.ui.show_clipping {
+        return Overlay::Clipping;
     }
+    Overlay::None
 }
 
 fn general_cursor(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) {
