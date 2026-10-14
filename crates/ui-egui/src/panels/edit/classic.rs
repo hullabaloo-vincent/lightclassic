@@ -40,7 +40,9 @@ pub(in crate::panels) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let off: Vec<&str> = panel.sections().iter().copied().filter(|s| !d.section_enabled(s)).collect();
                 // its own switch, or (for a panel without one) the way back from a section the Edit panel turned off
                 let switch = if panel.has_switch() || !off.is_empty() { Some(off.is_empty()) } else { None };
-                let (resp, toggled) = panel_header(ui, panel.id(), panel.title(), open, switch);
+                // in black and white the colour panel is the B&W mix, and says so
+                let title = if panel == DevelopPanel::Hsl && crate::is_bw(&d) { "B&W" } else { panel.title() };
+                let (resp, toggled) = panel_header(ui, panel.id(), title, open, switch);
                 if let Some(on) = toggled {
                     let sections = if on { off } else { panel.sections().to_vec() };
                     for section in sections {
@@ -307,10 +309,76 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
     }
 }
 
-/// HSL / Color: the colour (or black-and-white) mixer, and Point Color under it.
+/// The row above the colour sliders: the targeted adjustment tools for `tools` (key, label), and `after` at its
+/// right end. As the Edit panel's mixer has it.
+fn targeted_row(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, &str)], after: impl FnOnce(&mut LightcraftApp, &mut egui::Ui)) {
+    let t = Tokens::get(ui.ctx());
+    egui::Frame::NONE.inner_margin(margin(6, 2)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+            paint(ui.painter(), r, Icon::Target, t.icon);
+            for (k, label) in tools {
+                let tool = format!("tat:{k}");
+                let active = app.ui.tool == tool;
+                if text_button(ui, &format!("tatMixer-{k}"), crate::i18n::tr(label), active)
+                    .on_hover_text(crate::i18n::tr("Targeted adjustment: drag up/down on the photo to adjust the colours there"))
+                    .clicked()
+                {
+                    set_tat(app, ui.ctx(), &tool, active);
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| after(app, ui));
+        });
+    });
+}
+
+/// One slider for each of the eight colours: `id(colour)` names the control, and the row is labelled with the
+/// colour's name.
+fn colour_sliders(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: impl Fn(&str) -> String) {
+    for colour in lightcraft_develop::MIXER_BANDS {
+        let id = id(colour);
+        let Some(spec) = controls::find(&id) else { continue };
+        // the colour's name is the label of its black-and-white control ("Red"); a mixer control's own is "Red Hue"
+        let name = controls::find(&format!("bw.{colour}")).map_or(spec.label, |bw| bw.label);
+        let out = slider(ui, spec, controls::get(d, &id).unwrap_or(spec.default), true, Some(crate::i18n::tr(name)));
+        apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
+    }
+}
+
+/// HSL / Color as Classic lays it out: every colour at once, for one attribute (Hue, Saturation, Luminance) or all
+/// three, and Point Color under them. In black and white it is the B&W panel: how much each colour adds to the grey.
 fn hsl(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    mixer(app, ui, d);
-    if !crate::is_bw(d) {
+    use crate::classic::HslView;
+    if crate::is_bw(d) {
+        targeted_row(app, ui, &[("lum", "B&W Mix")], |app, ui| {
+            if text_button(ui, "bwAuto", crate::i18n::tr("Auto"), false)
+                .on_hover_text(crate::i18n::tr("Set the mix from the photo's colours"))
+                .clicked()
+            {
+                let _ = app.run("develop.autoBwMix", json!({}));
+            }
+        });
+        colour_sliders(app, ui, d, |colour| format!("bw.{colour}"));
+        return;
+    }
+    let view = app.ui.classic.hsl;
+    let items: Vec<(&str, &str)> = HslView::ALL.iter().map(|v| (v.short_label(), v.key())).collect();
+    let mut chosen = None;
+    egui::Frame::NONE.inner_margin(margin(10, 4)).show(ui, |ui| {
+        chosen = crate::widgets::segmented(ui, "hslView", &items, HslView::ALL.iter().position(|v| *v == view), 4);
+    });
+    if let Some(v) = chosen.and_then(|i| HslView::ALL.get(i)) {
+        app.ui.classic.hsl = *v;
+    }
+    targeted_row(app, ui, view.attributes(), |_, _| {});
+    for (attribute, title) in view.attributes() {
+        if view == HslView::All {
+            sub_title(ui, crate::i18n::tr(title));
+        }
+        colour_sliders(app, ui, d, |colour| format!("mixer.{colour}.{attribute}"));
+    }
+    {
         ui.add_space(6.0);
         let open = app.ui.flyout_open("pointColor");
         if flyout_row(ui, "pointColor", crate::i18n::tr("Point Color"), Icon::Picker, open).clicked() {

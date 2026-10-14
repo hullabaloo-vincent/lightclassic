@@ -2,6 +2,15 @@
 
 ## 2026-10-13
 
+### Classic interface: colours, black and white, and a quieter top bar
+- HSL / Color shows all eight colours at once, for Hue, Saturation or Luminance, or for all three (All). It showed
+  one colour at a time.
+- For a black-and-white photo that panel is titled B&W and holds one slider per colour (how light the reds, the
+  blues… turn out in the grey), with Auto and the tool to drag on the photo.
+- The top bar no longer has the cloud icon or the community (chat) icon. If a save is failing, the warning still
+  appears in the cloud's place.
+## 2026-10-13
+
 ### Show Clipping
 - Show Clipping (J, or a click on the histogram) paints the blown highlights red and the crushed shadows blue in the
   photo itself, also zoomed in to 100%. It used to draw a red or blue frame around the photo and leave you to find

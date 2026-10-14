@@ -1,6 +1,6 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (the desktop and web apps start in the Classic style)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (HSL / Color shows every colour and is B&W in black and white; no cloud or chat icon in the top bar)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
@@ -23,6 +23,7 @@ the style.
 | CLASSIC.3 | Develop right panels (Histogram, tools, Basic … Calibration) | done |
 | CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | done |
 | CLASSIC.5 | Desktop and web apps start in Classic | done |
+| CLASSIC.6 | HSL / Color with every colour, B&W panel; top bar without cloud and chat icons | done |
 
 ## Which style an app starts in
 
@@ -37,7 +38,8 @@ The choice is saved with the other UI settings (`ui.json` → `classic.interface
 
 Top to bottom (`crates/ui-egui/src/panels/classic/mod.rs`, `show`):
 
-1. **Top bar**: menus, search and the status icons, shared with the Modern style.
+1. **Top bar**: menus, search and the status icons, shared with the Modern style, without its community (chat) and
+   cloud icons. The cloud still appears as the warning it turns into while a save is failing.
 2. **Module picker**: `Library | Develop` at the right of its own row; the module showing is in the brighter text
    (widgets `module:library`, `module:develop`).
 3. **Left column, photo area, right column**, side by side. The columns are resized by dragging their inner edge
@@ -73,7 +75,7 @@ presets, copy and paste, History and scripts see no difference between the style
 | Histogram (`histogram`) | the Edit panel's histogram (clipping toggles, exposure line); soft proofing under it |
 | Basic (`basic`) | Auto, B&W, HDR, Reset; the profile and its amount; white balance (mode, picker, Temp, Tint); Tone: Exposure, Contrast, Highlights, Shadows, Whites, Blacks (and the HDR sliders); Presence: Texture, Clarity, Dehaze, Vibrance, Saturation |
 | Tone Curve (`toneCurve`) | the curve editor: point curves per channel, the parametric sliders, targeted adjustment |
-| HSL / Color (`hsl`) | the Color Mixer (the B&W Mixer in black and white), and Point Color |
+| HSL / Color (`hsl`), **B&W** in black and white | every colour at once (Red … Magenta) for one attribute, chosen by `button:hslView-hue` / `-sat` / `-lum`, or all three (`-all`); the targeted adjustment tool; Point Color under them. For a black-and-white photo the panel is titled B&W and holds the eight colours' share of the grey mix (`bw.*`), with Auto |
 | Color Grading (`colorGrading`) | the wheels, Blending and Balance |
 | Detail (`detail`) | Sharpening, AI Denoise, Noise Reduction |
 | Lens Corrections (`lensCorrections`) | Remove Chromatic Aberration, the lens profile, manual Distortion and Vignetting, Defringe, lateral CA |
@@ -151,9 +153,9 @@ H and M open the photo in Develop.
 - Develop's left column has no Collections panel: change source in the Library (G), or move along the filmstrip.
 - In a short window the three lists of the left column get little room each; fold the ones not in use.
 - Basic, Tone Curve, HSL / Color, Color Grading and Effects have no switch of their own (see Switches above).
-- What Classic's panels have and LightCraft has no control for yet: the HSL view of all eight colours per attribute
-  (the mixer shows one colour at a time), a lens profile picker (make, model, profile), the fringe eyedropper, the
-  process-version menu in Calibration (`develop.updateProcess` exists as a command), and the 1:1 detail preview.
+- What Classic's panels have and LightCraft has no control for yet: a lens profile picker (make, model, profile),
+  the fringe eyedropper, the process-version menu in Calibration (`develop.updateProcess` exists as a command), and
+  the 1:1 detail preview.
 - No solo mode (one panel open at a time) and no Classic panel keys (⌘1–9 by Classic's numbering, Tab, F5–F8).
 - The Library's right column is one panel at a time (Info, Keywords), not Classic's stack of Histogram, Quick
   Develop, Keywording, Keyword List and Metadata.
@@ -193,6 +195,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | CLASSIC.6: HSL / Color shows every colour per attribute and is the B&W panel in black and white; the top bar loses its cloud and chat icons |
 | 2026-10-13 | minor | CLASSIC.5: the desktop and web apps start in Classic; accessibility audit of the Classic layout |
 | 2026-10-13 | minor | CLASSIC.4: Develop's left column: Navigator, Presets, Snapshots, History |
 | 2026-10-13 | minor | CLASSIC.3: Develop's panels in Classic's order, their folding and switches, `view.classicPanel` |

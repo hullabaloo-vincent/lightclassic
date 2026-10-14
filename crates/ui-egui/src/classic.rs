@@ -271,6 +271,61 @@ fn panel_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     Ok(json!({"panel": name, "open": app.ui.section_open(id)}))
 }
 
+/// What the Classic HSL / Color panel shows for the eight colours: one attribute, or all three.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HslView {
+    #[default]
+    Hue,
+    Saturation,
+    Luminance,
+    All,
+}
+
+impl HslView {
+    pub const ALL: [Self; 4] = [Self::Hue, Self::Saturation, Self::Luminance, Self::All];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Hue => "Hue",
+            Self::Saturation => "Saturation",
+            Self::Luminance => "Luminance",
+            Self::All => "All",
+        }
+    }
+
+    /// Its label where four must fit in a row.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Hue => "Hue",
+            Self::Saturation => "Sat",
+            Self::Luminance => "Lum",
+            Self::All => "All",
+        }
+    }
+
+    /// Its key in widget ids (`button:hslView-{key}`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Hue => "hue",
+            Self::Saturation => "sat",
+            Self::Luminance => "lum",
+            Self::All => "all",
+        }
+    }
+
+    /// The mixer attributes it shows, as they are named in control ids (`mixer.<colour>.<attribute>`) and in the
+    /// targeted adjustment tools (`tat:<attribute>`), each with its title.
+    pub fn attributes(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Hue => &[("hue", "Hue")],
+            Self::Saturation => &[("sat", "Saturation")],
+            Self::Luminance => &[("lum", "Luminance")],
+            Self::All => &[("hue", "Hue"), ("sat", "Saturation"), ("lum", "Luminance")],
+        }
+    }
+}
+
 /// What [`UiState`] keeps for the interface style.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -282,6 +337,8 @@ pub struct ClassicState {
     /// The Library's view and right-hand panel, to come back to from Develop.
     pub library_view: ViewMode,
     pub library_right: RightPanel,
+    /// The attribute the HSL / Color panel shows.
+    pub hsl: HslView,
 }
 
 /// The style the window is drawn in.

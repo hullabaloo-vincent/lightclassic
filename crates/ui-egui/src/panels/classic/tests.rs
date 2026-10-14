@@ -202,6 +202,7 @@ fn open_everything(h: &mut Headless) {
         }
     }
     h.app.ui.open_flyouts = ["curve", "mixer", "pointColor", "grading", "defringe", "sdrRendition"].map(String::from).to_vec();
+    h.app.ui.classic.hsl = crate::classic::HslView::All;
     assert!(h.settle(SETTLE), "the window never comes to rest with every panel open");
 }
 
@@ -487,4 +488,58 @@ fn presets_has_its_buttons_in_the_header_and_its_list_under_it() {
     assert!(header.contains_rect(create), "Create Preset {create:?} is in the header {header:?}");
     click(&mut h, "icon:presetCreate");
     assert!(h.app.ui.dialog.is_some(), "Create Preset opens its dialog");
+}
+
+// ------------------------------------------------------------------------------------ HSL / Color and B&W
+
+#[test]
+fn hsl_shows_every_colour_and_is_the_bw_mix_in_black_and_white() {
+    let mut h = develop();
+    h.app.ui.open_sections = vec!["color".to_string()];
+    h.settle(SETTLE);
+    let colours = lightcraft_develop::MIXER_BANDS;
+    let shown = |h: &Headless, prefix: &str| sliders(h).into_iter().filter(|s| s.starts_with(prefix)).count();
+    // one attribute at a time, for all eight colours
+    for colour in colours {
+        assert!(widget(&h, &format!("slider:mixer.{colour}.hue")).is_some(), "no Hue slider for {colour}");
+    }
+    assert_eq!(shown(&h, "slider:mixer."), 8, "Hue shows the eight Hue sliders only");
+    click(&mut h, "button:hslView-sat");
+    assert_eq!(h.app.ui.classic.hsl, crate::classic::HslView::Saturation);
+    assert!(colours.iter().all(|c| widget(&h, &format!("slider:mixer.{c}.sat")).is_some()) && shown(&h, "slider:mixer.") == 8);
+    click(&mut h, "button:hslView-all");
+    assert_eq!(shown(&h, "slider:mixer."), 24, "All shows hue, saturation and luminance for every colour");
+    // a slider there is the photo's own control
+    exec(&mut h, "develop.set", json!({"control": "mixer.blue.sat", "value": -40.0}));
+    let saturation = h.app.session.active().and_then(|id| h.app.session.develop_of(id)).map(|d| d.mixer.blue.sat);
+    assert_eq!(saturation, Some(-40.0));
+    assert!(h.painted_text().iter().any(|t| t == "HSL / Color"), "the colour panel is titled HSL / Color");
+
+    // black and white: the panel is B&W, with one slider for each colour's share of the grey
+    exec(&mut h, "develop.treatment", json!({}));
+    assert_eq!(shown(&h, "slider:mixer."), 0, "colour sliders are shown for a black-and-white photo");
+    for colour in colours {
+        assert!(widget(&h, &format!("slider:bw.{colour}")).is_some(), "no B&W mix slider for {colour}");
+    }
+    assert!(widget(&h, "button:bwAuto").is_some(), "the B&W mix has its Auto");
+    let text = h.painted_text();
+    assert!(!text.iter().any(|t| t == "HSL / Color"), "a black-and-white photo's panel is still titled HSL / Color");
+    // (Basic, with its B&W button, is folded here: the only "B&W" on screen is the panel's title)
+    assert!(text.iter().any(|t| t == "B&W"), "the panel is not titled B&W: {text:?}");
+}
+
+#[test]
+fn the_classic_top_bar_has_no_cloud_or_chat_icon() {
+    let h = frame(true);
+    for gone in ["icon:cloud", "icon:discord"] {
+        assert!(widget(&h, gone).is_none(), "{gone} is in the Classic top bar");
+    }
+    // the others close up: Help is the rightmost
+    let (help, share, bell) = (rect(&h, "icon:help"), rect(&h, "icon:share"), rect(&h, "icon:bell"));
+    assert!(
+        help.right() > SIZE[0] - 40.0 && share.right() <= help.left() + 12.5 && bell.right() <= share.left() + 12.5,
+        "{help:?} {share:?} {bell:?}"
+    );
+    let modern = frame(false);
+    assert!(widget(&modern, "icon:cloud").is_some() && widget(&modern, "icon:discord").is_some(), "the Modern top bar keeps both");
 }
