@@ -2,6 +2,65 @@
 
 ## 2026-10-13
 
+### Print: a photo on a page
+- The Classic interface has a Print module (Library | Develop | Print, ⌘⌥6; File ▸ Print to File…, ⌘P). It shows a
+  page with the photo on it: choose the page's shape and size, set how large the photo is, and drag it where you
+  want it. It stays on the page and catches on the centre lines.
+- Print to File writes the page as a JPEG, PNG or TIFF, one file for each selected photo, with the background colour
+  you chose (white, light, grey or black). What you see on the page is what the file holds.
+- The same is there for scripts: `app.export` takes a `canvas` (its size, background, the photo's share and place).
+## 2026-10-13
+
+### Classic interface: colours, black and white, and a quieter top bar
+- HSL / Color shows all eight colours at once, for Hue, Saturation or Luminance, or for all three (All). It showed
+  one colour at a time.
+- For a black-and-white photo that panel is titled B&W and holds one slider per colour (how light the reds, the
+  blues… turn out in the grey), with Auto and the tool to drag on the photo.
+- The top bar no longer has the cloud icon or the community (chat) icon. If a save is failing, the warning still
+  appears in the cloud's place.
+## 2026-10-13
+
+### Show Clipping
+- Show Clipping (J, or a click on the histogram) paints the blown highlights red and the crushed shadows blue in the
+  photo itself, also zoomed in to 100%. It used to draw a red or blue frame around the photo and leave you to find
+  them. A strongly saturated colour (a red flag, a deep blue sky) is not painted: only pixels that are themselves
+  nearly white or nearly black.
+## 2026-10-13
+
+### Classic interface
+- View ▸ Classic Interface (also Settings ▸ Interface ▸ Interface Style) arranges the window the way Lightroom
+  Classic does: a Library | Develop module picker, panels down both sides, the toolbar under the photo and a
+  filmstrip across the whole window, in the Library's grids too. ⌘⌥1 and ⌘⌥2 switch modules, and the keys there
+  already land where you expect: G, N and ⇧C go to the Library; E, C, H and M open the photo in Develop.
+- Develop has Classic's panels in Classic's order: Histogram, the tools (Crop, Remove, Red Eye, Masking) in a row
+  under it, then Basic, Tone Curve, HSL / Color, Color Grading, Detail, Lens Corrections, Transform, Effects and
+  Calibration. A click on a header folds its panel; Detail, Lens Corrections, Transform and Calibration have a switch
+  that turns their adjustments off without losing them. A tool opens under the tool row, with the panels still below.
+- On Develop's left are Navigator, Presets, Snapshots (your versions) and History. The Navigator always shows the
+  whole photo; zoomed in, it outlines what the loupe shows, and a click or drag there moves it. ⇧P, ⇧V and Window ▸
+  History fold the three lists.
+- LightCraft starts in the Classic arrangement, with the Navigator, Presets and History open beside the photo. View ▸
+  Classic Interface switches to the Modern one, which is unchanged; the choice is remembered.
+## 2026-10-13
+
+### Show All Mask Overlays
+- Show All Mask Overlays (⌘⇧O) shows every visible mask in every overlay view. In White on Black, Image on Black,
+  Image on White and Colour on B&W each mask was drawn over the one before it, so only the last mask was left.
+## 2026-10-13
+
+### Canon raws shot in Adobe RGB, and dark photos
+- Canon CR2 files shot with the camera set to Adobe RGB (their names start with `_MG_`) no longer open muted. The
+  starting look is fitted to the camera's own JPEG, and that JPEG was read as sRGB; the camera says Adobe RGB only in
+  its maker note, which is now read. On 20 photos from an EOS Rebel T5 the colourfulness went from 88% to 96% of the
+  camera JPEG's, and every one is closer to it. The camera's preview shown while a photo loads has the right colours
+  too.
+- A dark photo full of colour (a candlelit interior, a night street) takes its colour from its camera JPEG like any
+  other. It used to count as colourless because its colours are dim, and opened grey-brown.
+- A dark photo with a lamp or another small bright light in it keeps a starting look in more cases: one such light
+  could make every fitted look fail its check, and the photo opened in the grey fallback.
+- Existing smart previews are refreshed when their originals are online, and cached renders are redrawn. Photos you
+  have edited keep their edits and start from the corrected colour. These looks follow the camera's JPEG: a very dark
+  high-ISO frame still opens as dark and as subdued as the camera rendered it.
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you
   let go. On a 64 MP raw the first of those renders decoded the whole file again, which held up the loupe's

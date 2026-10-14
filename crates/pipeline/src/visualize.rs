@@ -39,7 +39,18 @@ pub enum Overlay {
     /// Visualize HDR (photos edited in HDR): the SDR image dimmed to grey, with every pixel the HDR
     /// rendition puts above SDR white painted by how far above it is ([`HDR_BANDS`]).
     HdrRange,
+    /// Show Clipping: blown highlights painted [`CLIPPED_WHITE`] and crushed shadows [`CLIPPED_BLACK`], pixel by
+    /// pixel ([`clipping`]).
+    Clipping,
 }
+
+/// [`Overlay::Clipping`] colours (sRGB): highlights that have run out of range, and shadows that have.
+pub const CLIPPED_WHITE: [u8; 3] = [255, 40, 40];
+pub const CLIPPED_BLACK: [u8; 3] = [40, 90, 255];
+/// How near white (near black) a pixel must be for a channel at the limit to count as clipped, as luma out of 255:
+/// the brightest and the darkest tenth.
+const CLIPPED_WHITE_LUMA: f32 = 229.5;
+const CLIPPED_BLACK_LUMA: f32 = 25.5;
 
 /// [`Overlay::HdrRange`] colours (sRGB) for 0–1, 1–2, 2–3 and ≥ 3 stops above SDR white.
 pub const HDR_BANDS: [[u8; 3]; 4] = [[255, 214, 92], [255, 150, 40], [235, 64, 52], [214, 60, 210]];
@@ -125,6 +136,7 @@ impl Overlay {
             Overlay::Mask { id, view, color, opacity } => (3, pack_mask(id, view, color, opacity) as f64),
             Overlay::AllMasks { view, color, opacity } => (5, pack_mask(0, view, color, opacity) as f64),
             Overlay::HdrRange => (4, 0.0),
+            Overlay::Clipping => (6, 0.0),
         }
     }
 
@@ -135,6 +147,7 @@ impl Overlay {
             2 => Overlay::Spots(v.clamp(0.0, 100.0) as u8),
             3 if v.is_finite() && v >= 0.0 => unpack_mask(v as u64),
             4 => Overlay::HdrRange,
+            6 => Overlay::Clipping,
             5 if v.is_finite() && v >= 0.0 => {
                 let rgb = (v as u64 >> 20) & 0xff_ffff;
                 Overlay::AllMasks {
@@ -156,6 +169,7 @@ impl Overlay {
             Overlay::Mask { id, view, color, opacity } => 3 << 60 | pack_mask(id, view, color, opacity),
             Overlay::AllMasks { view, color, opacity } => 5 << 60 | pack_mask(0, view, color, opacity),
             Overlay::HdrRange => 0x4000,
+            Overlay::Clipping => 0x6000,
         }
     }
 
@@ -193,21 +207,57 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>,
             }
         }
         Overlay::Spots(t) => spots(img, t, plan.px_per_long),
+        Overlay::Clipping => clipping(img),
         Overlay::Mask { view, color, opacity, .. } => {
             if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
                 mask_view(img, a, view, color, opacity);
             }
         }
         Overlay::AllMasks { view, color, opacity } => {
-            if let Some(planes) = masks {
-                for a in planes {
-                    if (a.width, a.height) == (img.width, img.height) {
-                        mask_view(img, a, view, color, opacity);
-                    }
-                }
+            // one view over the masks together: drawn one after another, each mask's view would paint over the last
+            // (the black of White on Black, the grey of Colour on B&W)
+            if let Some(a) = masks.and_then(|planes| union(planes, img.width, img.height)) {
+                mask_view(img, &a, view, color, opacity);
             }
         }
     }
+}
+
+/// The masks' alphas as one: selected where any of them selects, as strongly as the strongest. Planes that are not
+/// the image's size are left out; `None` when none is left.
+fn union(planes: &[Plane], width: usize, height: usize) -> Option<Plane> {
+    let mut fitting = planes.iter().filter(|a| (a.width, a.height) == (width, height) && width.checked_mul(height) == Some(a.data.len()));
+    let mut all = fitting.next()?.clone();
+    for a in fitting {
+        for (out, v) in all.data.iter_mut().zip(&a.data) {
+            *out = out.max(*v);
+        }
+    }
+    Some(all)
+}
+
+/// Paint the pixels of `img` where the exposure has run out of range: a channel at white in a pixel that is itself
+/// nearly white ([`CLIPPED_WHITE`]), a channel at black in a pixel that is nearly black ([`CLIPPED_BLACK`]).
+///
+/// One channel at the limit is enough (a sunset's sky is gone in red and green long before blue), but only in the
+/// brightest and darkest tenth: this is the display's 8-bit sRGB, where any strongly saturated colour sits at 255
+/// or 0 in a channel, and a red flag or a blue sky is not a blown highlight or a crushed shadow.
+pub fn clipping(img: &mut Rgba8) {
+    let w = img.width;
+    for_rows(&mut img.data, w, |_, row| {
+        for px in row.iter_mut() {
+            let [r, g, b, _] = *px;
+            let luma = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
+            let paint = if (r == 255 || g == 255 || b == 255) && luma >= CLIPPED_WHITE_LUMA {
+                CLIPPED_WHITE
+            } else if (r == 0 || g == 0 || b == 0) && luma <= CLIPPED_BLACK_LUMA {
+                CLIPPED_BLACK
+            } else {
+                continue;
+            };
+            *px = [paint[0], paint[1], paint[2], 255];
+        }
+    });
 }
 
 /// Draw mask alpha `a` over `img` as `view`.
@@ -404,6 +454,48 @@ mod tests {
         assert_eq!(MaskView::parse("colorOnBw"), Some(MaskView::ColorOnBw));
     }
 
+    /// Show Clipping marks the pixels themselves: blown ones red, crushed ones blue, the rest untouched, and the
+    /// histogram is the photo's, not the overlay's.
+    #[test]
+    fn clipping_overlay_paints_blown_and_crushed_pixels() {
+        // thirds: far above white, mid grey, black
+        let src = Rgb32f::from_fn(90, 30, |x, _| match x / 30 {
+            0 => [40.0, 40.0, 40.0],
+            1 => [0.18, 0.18, 0.18],
+            _ => [0.0, 0.0, 0.0],
+        });
+        let info = SourceInfo::default();
+        let s = DevelopSettings::default();
+        let plain = render(&src, &info, &s, &RenderRequest::fit(90, 30));
+        let shown = render(&src, &info, &s, &RenderRequest { overlay: Overlay::Clipping, ..RenderRequest::fit(90, 30) });
+        let (blown, grey, black) = (15 * 90 + 10, 15 * 90 + 45, 15 * 90 + 80);
+        assert_eq!(plain.image.data[blown], [255; 4], "the bright third renders white");
+        assert_eq!(plain.image.data[black], [0, 0, 0, 255], "the dark third renders black");
+        let paint = |c: [u8; 3]| [c[0], c[1], c[2], 255];
+        assert_eq!(shown.image.data[blown], paint(CLIPPED_WHITE));
+        assert_eq!(shown.image.data[black], paint(CLIPPED_BLACK));
+        assert_eq!(shown.image.data[grey], plain.image.data[grey], "a pixel with detail in every channel is left alone");
+        assert_eq!(shown.histogram.clipping(), plain.histogram.clipping(), "the histogram is of the photo, not of the overlay");
+        assert!(plain.histogram.clipping().0 > 0.3 && plain.histogram.clipping().1 > 0.3);
+
+        // one channel at the limit is enough in a pixel that is nearly white or nearly black: a sunset sky gone in
+        // red and green, a shadow with one channel at zero
+        let lost = vec![[255, 255, 180, 255], [255, 250, 240, 255], [0, 4, 12, 255], [3, 0, 0, 255]];
+        let mut img = Rgba8 { width: 4, height: 1, data: lost };
+        clipping(&mut img);
+        assert_eq!(img.data, vec![paint(CLIPPED_WHITE), paint(CLIPPED_WHITE), paint(CLIPPED_BLACK), paint(CLIPPED_BLACK)]);
+        // but a saturated colour is not an exposure problem, though it sits at 255 or 0 in a channel: a red flag,
+        // an orange, a blue sky, a violet
+        let colours = vec![[255, 0, 0, 255], [255, 120, 30, 255], [0, 110, 230, 255], [90, 0, 200, 255]];
+        let mut img = Rgba8 { width: 4, height: 1, data: colours.clone() };
+        clipping(&mut img);
+        assert_eq!(img.data, colours, "saturated colours are painted as clipped");
+
+        let (k, v) = Overlay::Clipping.to_parts();
+        assert_eq!(Overlay::from_parts(k, v), Overlay::Clipping);
+        assert!(Overlay::Clipping.key() != 0 && Overlay::Clipping.key() != Overlay::HdrRange.key());
+    }
+
     #[test]
     fn all_masks_overlay_shows_every_visible_mask_at_once() {
         use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
@@ -435,8 +527,24 @@ mod tests {
         // a hidden mask is skipped
         s.masks[1].visible = false;
         let img2 = render(&src, &info, &s, &RenderRequest { overlay: o, ..RenderRequest::fit(80, 40) }).image;
-        assert_eq!(img2.data[in_r], plain.data[in_r], "hidden right mask not painted");
+        assert_eq!(img2.data[in_r], [0, 0, 0, 255], "hidden right mask not painted");
         assert_eq!(img2.data[in_l], [255; 4], "visible left mask still painted");
+        // the views that keep the photo keep it inside every mask: drawn one mask after another, the black around
+        // the second covered the first
+        s.masks[1].visible = true;
+        let o_image = Overlay::AllMasks { view: MaskView::ImageOnBlack, color: [255, 0, 0], opacity: 100 };
+        let img3 = render(&src, &info, &s, &RenderRequest { overlay: o_image, ..RenderRequest::fit(80, 40) }).image;
+        assert_eq!(img3.data[in_l], plain.data[in_l], "the photo inside the left mask");
+        assert_eq!(img3.data[in_r], plain.data[in_r], "the photo inside the right mask");
+        assert_eq!(img3.data[mid], [0, 0, 0, 255], "between the masks: black");
+        // alphas of another size than the image are left out; with none left there is nothing to draw
+        let (w, h) = (plain.width, plain.height);
+        let stray = Plane { width: 3, height: 2, data: vec![1.0; 6] };
+        assert!(union(&[], w, h).is_none());
+        assert!(union(std::slice::from_ref(&stray), w, h).is_none());
+        let nothing = Plane { width: w, height: h, data: vec![0.0; w * h] };
+        let both = union(&[nothing, stray], w, h).expect("the plane of the image's size");
+        assert!(both.data.iter().all(|a| *a == 0.0), "the stray plane's 1.0 leaked into the union");
         // parts round trip and a stable, distinct cache key
         let (k, v) = o.to_parts();
         assert_eq!(Overlay::from_parts(k, v), o);

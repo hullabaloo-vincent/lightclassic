@@ -53,6 +53,13 @@ pub fn language_from_command(id: &str) -> Option<crate::i18n::Locale> {
 pub const UI_COMMANDS: &[UiCommand] = &[
     ("ui.dock", "Arrange Panel", None, ""),
     ("ui.dock.reset", "Reset Panel Layout", None, "Window"),
+    ("module.library", "Library", Some("Cmd+Alt+1"), "Window"),
+    ("module.develop", "Develop", Some("Cmd+Alt+2"), "Window"),
+    ("module.print", "Print", Some("Cmd+Alt+6"), "Window"),
+    ("print.export", "Print to File…", Some("Cmd+P"), "File"),
+    ("print.set", "Set Print Layout", None, ""),
+    ("view.interface", "Classic Interface", None, "View"),
+    ("view.classicPanel", "Show Classic Panel", None, ""),
     ("modelSetup.cancel", "Cancel Pending Photo Action", None, ""),
     ("view.photoGrid", "Photo Grid", None, "View"),
     ("view.squareGrid", "Square Grid", None, "View"),
@@ -358,6 +365,9 @@ fn theme_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
 pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
     if matches!(id, "ui.dock" | "ui.dock.reset") {
         return Some(crate::docking::command(app, id == "ui.dock.reset", p));
+    }
+    if let Some(result) = crate::classic::command(app, id, p) {
+        return Some(result);
     }
     if matches!(id, "library.inspectLightroom" | "library.importLightroom") {
         // the app's own context: a fresh one's repaints reach no window and its clock starts at zero

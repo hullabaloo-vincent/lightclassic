@@ -168,6 +168,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 ("share", Icon::Share, "Export", "dialog.export"),
                 ("bell", Icon::Bell, "Activity", "panel.activity"),
             ] {
+                // The Classic style has neither the community link nor the cloud: the cloud only appears as the
+                // warning it turns into when a save is failing.
+                if crate::classic::active(app) && (id == "discord" || (id == "cloud" && unsaved.is_none())) {
+                    continue;
+                }
                 let r = Rect::from_center_size(pos2(x, full.center().y), vec2(28.0, 28.0));
                 let resp = ui.interact(r, egui::Id::new(("top", id)), Sense::click()).on_hover_text(crate::i18n::tr(tip));
                 register(ui.ctx(), format!("icon:{id}"), r);

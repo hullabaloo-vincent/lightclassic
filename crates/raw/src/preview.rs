@@ -16,22 +16,33 @@ pub enum PreviewColorSpace {
 
 /// The colour space the raw says its embedded JPEG is in, for a JPEG that declares none itself (no ICC profile,
 /// no EXIF), first available first: the Nikon maker-note ColorSpace (0x001e: 1 = sRGB, 2 = Adobe RGB, per Nikon
-/// tag documentation); the raw's own EXIF ColorSpace (0xA001: 1 = sRGB), or Uncalibrated (0xFFFF) with the
+/// tag documentation); the Canon maker-note ColorSpace (0x00b4, the same two values, per ExifTool's Canon tag
+/// documentation), not for a DNG; the raw's own EXIF ColorSpace (0xA001: 1 = sRGB), or Uncalibrated (0xFFFF) with the
 /// Interoperability IFD's InteropIndex "R03", the DCF option file for Adobe RGB (as a Sony body shot in Adobe RGB
 /// writes, issue #778; per the Exif and DCF specifications), not for a DNG. This is a fallback only: a JPEG's own ICC/EXIF colour
 /// declaration takes precedence.
+///
+/// Canon needs its maker note: a CR2 shot in Adobe RGB (an EOS Rebel T5 here; Canon names such files `_MG_…`) states
+/// Uncalibrated in its EXIF but keeps InteropIndex "R98", so the EXIF alone doesn't name the space. Read as sRGB, its
+/// camera JPEG is muted (reds and greens most), and so is every look fitted to it.
 pub fn embedded_preview_color_space(bytes: &[u8]) -> Option<PreviewColorSpace> {
     let tiff = Tiff::parse(bytes).ok()?;
     let make = tiff.ifds.first()?.string(t::MAKE).unwrap_or_default();
     let exif = tiff.exif()?;
-    if make.to_ascii_uppercase().starts_with("NIKON")
-        && let Some(space) = nikon_color_space(bytes, &tiff, exif, &make)
+    let maker = make.to_ascii_uppercase();
+    if maker.starts_with("NIKON")
+        && let Some(space) = maker_note_color_space(bytes, &tiff, exif, &make, 0x001e)
     {
         return Some(space);
     }
     // a DNG's EXIF describes the original capture; its previews are rendered by the converter
     if tiff.ifds.first()?.contains(t::DNG_VERSION) {
         return None;
+    }
+    if maker.starts_with("CANON")
+        && let Some(space) = maker_note_color_space(bytes, &tiff, exif, &make, 0x00b4)
+    {
+        return Some(space);
     }
     match exif.u16(0xA001)? {
         1 => Some(PreviewColorSpace::Srgb),
@@ -40,10 +51,11 @@ pub fn embedded_preview_color_space(bytes: &[u8]) -> Option<PreviewColorSpace> {
     }
 }
 
-fn nikon_color_space(bytes: &[u8], tiff: &Tiff, exif: &Ifd, make: &str) -> Option<PreviewColorSpace> {
+/// The maker note's ColorSpace `tag` (Nikon's and Canon's both use 1 = sRGB, 2 = Adobe RGB).
+fn maker_note_color_space(bytes: &[u8], tiff: &Tiff, exif: &Ifd, make: &str, tag: u16) -> Option<PreviewColorSpace> {
     let e = exif.get(t::MAKER_NOTE)?;
     let mn = makernote::parse_makernote(bytes, e.offset, e.count() as u64, tiff.order, make)?;
-    match mn.ifd.u16(0x001e)? {
+    match mn.ifd.u16(tag)? {
         1 => Some(PreviewColorSpace::Srgb),
         2 => Some(PreviewColorSpace::AdobeRgb),
         _ => None,
@@ -412,6 +424,68 @@ mod tests {
         f.extend_from_slice(jpeg);
         f.extend(std::iter::repeat_n(0x33u8, gap));
         f
+    }
+
+    /// A TIFF raw of `make` whose EXIF states `color_space` (with InteropIndex "R98", as Canon writes even in Adobe
+    /// RGB) and whose maker note is a plain IFD with one SHORT entry, `(tag, value)`.
+    fn color_space_fixture(make: &str, dng: bool, color_space: u16, maker_note: Option<(u16, u16)>) -> Vec<u8> {
+        let mut exif = IfdBuilder::new();
+        exif.set(0xA001, Value::Short(vec![color_space]));
+        let mut interop = IfdBuilder::new();
+        interop.set(0x0001, Value::Undefined(b"R98".to_vec()));
+        exif.set_child(t::INTEROP_IFD, interop);
+        if let Some((tag, value)) = maker_note {
+            // one entry, its value inline, no next IFD: position-independent
+            let mut note = vec![1, 0];
+            note.extend_from_slice(&tag.to_le_bytes());
+            note.extend_from_slice(&[3, 0, 1, 0, 0, 0]);
+            note.extend_from_slice(&value.to_le_bytes());
+            note.extend_from_slice(&[0; 6]);
+            exif.set(t::MAKER_NOTE, Value::Undefined(note));
+        }
+        let mut ifd = IfdBuilder::new();
+        ifd.set(t::MAKE, Value::Ascii(make.into()));
+        if dng {
+            ifd.set(t::DNG_VERSION, Value::Byte(vec![1, 4, 0, 0]));
+        }
+        ifd.set_child(t::EXIF_IFD, exif);
+        ifd.set(t::IMAGE_WIDTH, Value::Long(vec![1]));
+        ifd.set(t::IMAGE_LENGTH, Value::Long(vec![1]));
+        ifd.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![vec![0u8; 4]] });
+        TiffWriter::new(lightcraft_tiff::ByteOrder::Little, false).write(&[ifd]).expect("the fixture writes")
+    }
+
+    /// A Canon raw shot in Adobe RGB says so only in its maker note (ColorSpace, 0x00b4): its EXIF states
+    /// Uncalibrated and keeps InteropIndex "R98". Without the maker note the camera JPEG was read as sRGB, and the
+    /// look fitted to it came out muted (20 EOS Rebel T5 CR2s: mean C* 0.88 of the camera's, 0.94 with it).
+    #[test]
+    fn a_canon_raw_names_its_previews_colour_space_in_the_maker_note() {
+        let space = |file: Vec<u8>| embedded_preview_color_space(&file);
+        assert_eq!(space(color_space_fixture("Canon", false, 0xFFFF, Some((0x00b4, 2)))), Some(PreviewColorSpace::AdobeRgb));
+        assert_eq!(space(color_space_fixture("Canon", false, 0xFFFF, Some((0x00b4, 1)))), Some(PreviewColorSpace::Srgb));
+        // the maker note decides, as Nikon's does: the EXIF tag is what a body leaves at Uncalibrated
+        assert_eq!(space(color_space_fixture("Canon", false, 1, Some((0x00b4, 2)))), Some(PreviewColorSpace::AdobeRgb));
+        // no maker note, no such tag or a value outside the documented two: the EXIF rules, as before
+        assert_eq!(space(color_space_fixture("Canon", false, 0xFFFF, None)), None, "R98 does not name a space");
+        assert_eq!(space(color_space_fixture("Canon", false, 1, None)), Some(PreviewColorSpace::Srgb));
+        assert_eq!(space(color_space_fixture("Canon", false, 0xFFFF, Some((0x00b5, 2)))), None);
+        assert_eq!(space(color_space_fixture("Canon", false, 1, Some((0x00b4, 7)))), Some(PreviewColorSpace::Srgb));
+        // another maker's note is not read for Canon's tag
+        assert_eq!(space(color_space_fixture("SONY", false, 0xFFFF, Some((0x00b4, 2)))), None);
+        // a DNG converted from a CR2 keeps the maker note, but its previews are the converter's
+        assert_eq!(space(color_space_fixture("Canon", true, 0xFFFF, Some((0x00b4, 2)))), None);
+        // a maker note that is not an IFD is ignored
+        let mut exif = IfdBuilder::new();
+        exif.set(0xA001, Value::Short(vec![1]));
+        exif.set(t::MAKER_NOTE, Value::Undefined(vec![0xff; 40]));
+        let mut ifd = IfdBuilder::new();
+        ifd.set(t::MAKE, Value::Ascii("Canon".into()));
+        ifd.set_child(t::EXIF_IFD, exif);
+        ifd.set(t::IMAGE_WIDTH, Value::Long(vec![1]));
+        ifd.set(t::IMAGE_LENGTH, Value::Long(vec![1]));
+        ifd.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![vec![0u8; 4]] });
+        let file = TiffWriter::new(lightcraft_tiff::ByteOrder::Little, false).write(&[ifd]).unwrap();
+        assert_eq!(embedded_preview_color_space(&file), Some(PreviewColorSpace::Srgb));
     }
 
     /// A RAF's preview pointer sits at a fixed offset, so a header-sized prefix locates it and the

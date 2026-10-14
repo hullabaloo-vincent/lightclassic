@@ -64,7 +64,9 @@ those:
   file keeps the preview: a preview colour space of **Adobe RGB** (the whole-file path applies it
   through `decode_raw_preview`; a JPEG-only decode has the JPEG's own space, else sRGB — a container
   that says sRGB does not decline, since that is what the decode assumes anyway), and the file's own
-  EXIF orientation when the preview JPEG carries none of its own;
+  EXIF orientation when the preview JPEG carries none of its own. (A Canon CR2 declares Adobe RGB in its maker
+  note, read since 2026-10-13: such files now decline here too; the corpus numbers below were measured before
+  that and not re-measured);
 - a format the planner cannot describe — NEF, ORF and PEF probe from samples, CRW/MRW/X3F are found
   by scanning — a plan that does not fit the buffer or wants more than 60 % of the file (the bound the
   import path's own partial read uses), or a window that does not decode all answer `None`, and the

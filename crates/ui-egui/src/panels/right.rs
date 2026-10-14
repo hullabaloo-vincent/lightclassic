@@ -137,6 +137,14 @@ fn custom_aspect(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 }
 
 fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    crop_tool(app, ui, id);
+    divider(ui);
+    header(ui, "Geometry");
+    geometry(app, ui, id);
+}
+
+/// The Crop tool's own controls: aspect, angle, rotate and flip, the overlay.
+pub(super) fn crop_tool(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Crop");
     padded(ui, |ui| {
@@ -276,8 +284,11 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         }
     });
-    divider(ui);
-    header(ui, "Geometry");
+}
+
+/// Geometry: Upright and the transform sliders (Classic's Transform panel).
+pub(super) fn geometry(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let d = app.session.develop_of(id).unwrap_or_default();
     padded(ui, |ui| {
         ui.label(crate::i18n::tr("Upright"));
         {
@@ -340,7 +351,7 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
-fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+pub(super) fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Remove");
     padded(ui, |ui| {
@@ -462,7 +473,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
 }
 
-fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+pub(super) fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Red Eye");
     padded(ui, |ui| {
@@ -1001,8 +1012,13 @@ fn keyword_set(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 }
 
 fn versions(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     header(ui, "Versions");
+    versions_body(app, ui, id);
+}
+
+/// Versions without its title: Create Version and the named and automatic versions (Classic's Snapshots panel).
+pub(super) fn versions_body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     let t = Tokens::get(ui.ctx());
     padded(ui, |ui| {
         if text_button(ui, "versionCreate", crate::i18n::tr("Create Version"), false).clicked() {
@@ -1126,8 +1142,13 @@ fn history_row(i: usize, cursor: Option<usize>) -> HistoryRow {
 }
 
 fn activity(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     header(ui, "History");
+    activity_body(app, ui, id);
+}
+
+/// History without its title: the photo's edit steps, newest first.
+pub(super) fn activity_body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let Some(p) = app.session.catalog.photo(id).cloned() else { return };
     let t = Tokens::get(ui.ctx());
     padded(ui, |ui| {
         if p.history.is_empty() {

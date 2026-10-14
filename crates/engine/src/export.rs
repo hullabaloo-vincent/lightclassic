@@ -142,6 +142,125 @@ impl Resize {
     }
 }
 
+/// A canvas the exported photo is placed on, as a print layout places a photo on a page: the file is the canvas,
+/// with the photo scaled to a share of it and set where the layout says, on a background colour.
+///
+/// The layout is in fractions of the canvas, so it means the same picture at any canvas size.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Canvas {
+    /// The canvas in pixels ([`CANVAS_EDGE_RANGE`] each way, [`CANVAS_MAX_PIXELS`] in all).
+    pub width: u32,
+    pub height: u32,
+    /// The colour around the photo (sRGB).
+    pub background: [u8; 3],
+    /// How large the photo is: it is fitted inside this fraction of the canvas, so 1 reaches the canvas edges on
+    /// the tighter side ([`CANVAS_SIZE_RANGE`]).
+    pub size: f32,
+    /// Where the photo's centre sits, as a fraction of the canvas across and down (0.5, 0.5 is the middle). What
+    /// reaches past the canvas is cut off.
+    pub x: f32,
+    pub y: f32,
+}
+
+/// A canvas edge in pixels.
+pub const CANVAS_EDGE_RANGE: (u32, u32) = (16, 20_000);
+/// The most pixels a canvas may have (its 8-bit image is four bytes a pixel).
+pub const CANVAS_MAX_PIXELS: u64 = 120_000_000;
+/// The photo's share of the canvas.
+pub const CANVAS_SIZE_RANGE: (f32, f32) = (0.02, 1.0);
+
+impl Default for Canvas {
+    fn default() -> Self {
+        Self { width: 3000, height: 3000, background: [255, 255, 255], size: 0.85, x: 0.5, y: 0.5 }
+    }
+}
+
+impl Canvas {
+    /// The keys of a `canvas` object.
+    pub const KEYS: &'static [&'static str] = &["width", "height", "background", "size", "x", "y"];
+
+    /// Whether a canvas can be written as `format`: the formats rendered in 8 bits per channel.
+    pub fn takes(format: ExportFormat) -> bool {
+        format.is_rendered() && format != ExportFormat::RenderedDng
+    }
+
+    /// This canvas when it can be made, else what is wrong with it.
+    pub fn checked(self) -> Result<Self, String> {
+        let (lo, hi) = CANVAS_EDGE_RANGE;
+        if !(lo..=hi).contains(&self.width) || !(lo..=hi).contains(&self.height) {
+            return Err(format!("the canvas is {} × {} px: each side must be {lo}..{hi} px", self.width, self.height));
+        }
+        if self.width as u64 * self.height as u64 > CANVAS_MAX_PIXELS {
+            return Err(format!("the canvas is {} × {} px: at most {} megapixels", self.width, self.height, CANVAS_MAX_PIXELS / 1_000_000));
+        }
+        let (lo, hi) = CANVAS_SIZE_RANGE;
+        if !(lo..=hi).contains(&self.size) {
+            return Err(format!("`size` must be {lo}..{hi} (the photo's share of the canvas)"));
+        }
+        if !(0.0..=1.0).contains(&self.x) || !(0.0..=1.0).contains(&self.y) {
+            return Err("`x` and `y` must be 0..1 (the photo's centre across and down the canvas)".to_string());
+        }
+        Ok(self)
+    }
+
+    /// Read a `canvas` object strictly: an unknown key, a value of the wrong kind or one out of range is an error.
+    pub fn from_json(v: &serde_json::Value) -> Result<Self, String> {
+        let Some(o) = v.as_object() else { return Err("must be an object {width, height, background?, size?, x?, y?}".to_string()) };
+        if let Some(k) = o.keys().find(|k| !Self::KEYS.contains(&k.as_str())) {
+            return Err(unknown_key("key", k, Self::KEYS));
+        }
+        serde_json::from_value::<Self>(v.clone()).map_err(|e| e.to_string())?.checked()
+    }
+
+    /// The photo's size on the canvas in pixels, for a `w × h` (cropped) photo: its shape fitted inside
+    /// [`Self::size`] of the canvas.
+    pub fn photo_size(&self, w: f64, h: f64) -> (usize, usize) {
+        let (w, h) = (w.max(1.0), h.max(1.0));
+        let (lo, hi) = CANVAS_SIZE_RANGE;
+        let size = if self.size.is_finite() { self.size.clamp(lo, hi) as f64 } else { 1.0 };
+        let k = (self.width.max(1) as f64 * size / w).min(self.height.max(1) as f64 * size / h);
+        (((w * k).round() as usize).max(1), ((h * k).round() as usize).max(1))
+    }
+
+    /// Where a photo of `w × h` pixels starts on the canvas (its left and top; negative when it reaches past).
+    pub fn photo_origin(&self, w: usize, h: usize) -> (i64, i64) {
+        let at = |centre: f32, canvas: u32, photo: usize| {
+            let centre = if centre.is_finite() { centre.clamp(0.0, 1.0) as f64 } else { 0.5 };
+            (centre * canvas as f64 - photo as f64 / 2.0).round() as i64
+        };
+        (at(self.x, self.width, w), at(self.y, self.height, h))
+    }
+
+    /// The canvas with `photo` on it, `background` (already in the image's colour space) around it.
+    pub fn place(&self, photo: &Rgba8, background: [u8; 3]) -> Rgba8 {
+        // a canvas that was not `checked` is still never larger than the limits
+        let (cw, ch) = (self.width.clamp(1, CANVAS_EDGE_RANGE.1) as usize, self.height.clamp(1, CANVAS_EDGE_RANGE.1) as usize);
+        let mut out = Rgba8 { width: cw, height: ch, data: vec![[background[0], background[1], background[2], 255]; cw * ch] };
+        let (left, top) = self.photo_origin(photo.width, photo.height);
+        // the photo's columns that land on the canvas
+        let from = (-left).clamp(0, photo.width as i64) as usize;
+        let to = (cw as i64 - left).clamp(0, photo.width as i64) as usize;
+        if from >= to {
+            return out;
+        }
+        for row in 0..photo.height {
+            let y = top + row as i64;
+            if y < 0 || y >= ch as i64 {
+                continue;
+            }
+            let start = y as usize * cw + (left + from as i64) as usize;
+            let (Some(src), Some(dst)) =
+                (photo.data.get(row * photo.width + from..row * photo.width + to), out.data.get_mut(start..start + (to - from)))
+            else {
+                continue;
+            };
+            dst.copy_from_slice(src);
+        }
+        out
+    }
+}
+
 /// What happens when an output file already exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -712,6 +831,9 @@ pub struct ExportOptions {
     pub photos_album: String,
     /// The curve of an HDR AVIF: PQ (default) or HLG.
     pub hdr_transfer: HdrCurve,
+    /// Place the photo on a canvas ([`Canvas`]): the file is then the canvas, 8 bits per channel, and the size
+    /// options above are not used (the canvas sizes the photo).
+    pub canvas: Option<Canvas>,
 }
 
 impl Default for ExportOptions {
@@ -742,6 +864,7 @@ impl Default for ExportOptions {
             add_to_photos: false,
             photos_album: String::new(),
             hdr_transfer: HdrCurve::Pq,
+            canvas: None,
         }
     }
 }
@@ -784,6 +907,7 @@ pub const OPTION_PARAMS: &[&str] = &[
     "addToPhotos",
     "photosAlbum",
     "hdrTransfer",
+    "canvas",
 ];
 
 /// Why an export can't add its files to Apple Photos on this platform (`None`: it can, when the
@@ -954,6 +1078,18 @@ impl ExportOptions {
                 "naming" | "subfolder" | "path" | "dir" | "preset" => {
                     string(cmd, k, v)?;
                 }
+                "canvas" => {
+                    Canvas::from_json(v).map_err(|e| bad(format!("`{k}`: {e}")))?;
+                    // the canvas is composed in 8 bits, from the rendered photo
+                    let given = |key: &str| obj.get(key).filter(|v| !v.is_null());
+                    if given("hdr").and_then(Value::as_bool) == Some(true) || given("bitDepth").and_then(whole).is_some_and(|d| d > 8) {
+                        return Err(bad("`canvas` writes 8 bits per channel: leave out `hdr` and `bitDepth`".into()));
+                    }
+                    let format = given("format").and_then(Value::as_str).and_then(ExportFormat::parse);
+                    if format.is_some_and(|f| !Canvas::takes(f)) {
+                        return Err(bad("`canvas` needs a rendered format: jpeg, png, tiff, webp, avif, jxl or psd".into()));
+                    }
+                }
                 "sharpen" => one_of(k, v, &["none", "screen", "matte", "glossy"])?,
                 "sharpenAmount" => one_of(k, v, &["low", "standard", "high"])?,
                 "hdrTransfer" => one_of(k, v, &["pq", "hlg"])?,
@@ -1096,6 +1232,7 @@ impl ExportOptions {
             add_to_photos: p.get("addToPhotos").and_then(Value::as_bool).unwrap_or(d.add_to_photos),
             photos_album: s("photosAlbum").map_or(d.photos_album, |a| a.trim().to_string()),
             hdr_transfer: s("hdrTransfer").and_then(HdrCurve::parse).unwrap_or(d.hdr_transfer),
+            canvas: p.get("canvas").and_then(|v| Canvas::from_json(v).ok()),
         }
     }
 
@@ -1393,7 +1530,10 @@ fn finish_8bit(img: &Rgba8, o: &ExportOptions) -> Rgba8 {
         let wm = Watermark { color: srgb8_in(space, wm.color), target: Some(space), ..wm.clone() };
         draw_watermark(&mut img, &wm);
     }
-    img
+    match &o.canvas {
+        Some(canvas) => canvas.place(&img, srgb8_in(space, canvas.background)),
+        None => img,
+    }
 }
 
 /// Output sharpening and the watermark on a high-bit-depth render.
@@ -1582,6 +1722,10 @@ pub fn output_size(p: &lightcraft_catalog::Photo, o: &ExportOptions) -> (usize, 
     let (w, h) = lightcraft_pipeline::native_output_size(p.width.max(1) as usize, p.height.max(1) as usize, &p.develop);
     // whole pixels first: a crop's float noise (5999.999… for 6000) must not decide a half-pixel tie
     let (w, h) = (w.round().max(1.0), h.round().max(1.0));
+    if let Some(canvas) = &o.canvas {
+        // the canvas sizes the photo; the file's own size is the canvas'
+        return canvas.photo_size(w, h);
+    }
     match &o.resize {
         Some(r) => r.apply(w, h),
         None => (w as usize, h as usize),
@@ -1667,6 +1811,19 @@ fn prepare_guarded(
     } else {
         o
     };
+    // a canvas is composed in 8 bits from the rendered photo: no HDR rendition, no high-bit-depth samples
+    let canvas_opts;
+    let o = match o.canvas {
+        Some(canvas) => {
+            canvas.checked().map_err(|e| format!("canvas: {e}"))?;
+            if !Canvas::takes(o.format) {
+                return Err("a canvas export needs a rendered format: JPEG, PNG, TIFF, WebP, AVIF, JPEG XL or PSD".into());
+            }
+            canvas_opts = ExportOptions { hdr: false, bit_depth: Some(8), ..o.clone() };
+            &canvas_opts
+        }
+        None => o,
+    };
     let (full_px, long) = ((p.width as usize).saturating_mul(p.height as usize), p.width.max(p.height) as usize);
     let (work, weight) = if o.format.is_rendered() {
         let (w, h) = output_size(p, o);
@@ -1674,6 +1831,8 @@ fn prepare_guarded(
         let gain_map = o.hdr_output() && o.format == ExportFormat::Jpeg;
         let job = session.export_job(id, w, h, o.effective_space(), o.effective_depth())?;
         let weight = render_weight(full_px, long, job.level, w.saturating_mul(h));
+        // and the canvas itself, drawn and encoded
+        let weight = o.canvas.map_or(weight, |c| weight.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(8)));
         let hdr_job = if gain_map { Some(session.export_job(id, w, h, o.effective_space(), OutputDepth::F32Hdr)?) } else { None };
         (Work::Render(Box::new(RenderWork { job, hdr_job, meta, opts: o.clone() })), weight)
     } else {
@@ -1725,7 +1884,8 @@ impl PreparedExport {
                     }
                     None => encode_rendered(&r, &opts, meta.as_ref())?,
                 };
-                Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new(), gpu_fallback })
+                let (width, height) = opts.canvas.map_or((r.image.width, r.image.height), |c| (c.width as usize, c.height as usize));
+                Ok(Exported { file_name, bytes, width, height, sidecars: Vec::new(), gpu_fallback })
             }
             Work::File { path, read, packet, dng, label, size, remove_location } => {
                 let bytes = match &read {
@@ -3279,5 +3439,104 @@ mod tests {
         assert_eq!(render_weight(1000 * 500, 1000, SourceLevel::Preview, 0), 1000 * 500 * 12);
         assert_eq!(render_weight(0, 0, SourceLevel::Full, 0), 0);
         assert!(render_weight(usize::MAX, 1, SourceLevel::Full, usize::MAX) > 0, "no overflow");
+    }
+
+    /// The print layout: the photo's share of the canvas and where its centre sits, both as fractions, so the same
+    /// layout is the same picture on any canvas; what reaches past the canvas is cut off.
+    #[test]
+    fn a_canvas_places_the_photo_by_fractions_of_the_canvas() {
+        let canvas = Canvas { width: 400, height: 400, background: [255, 255, 255], size: 0.5, x: 0.5, y: 0.5 };
+        assert_eq!(canvas.photo_size(6000.0, 4000.0), (200, 133), "a 3:2 photo inside half a square canvas");
+        assert_eq!(canvas.photo_size(4000.0, 6000.0), (133, 200));
+        assert_eq!(Canvas { width: 800, height: 800, ..canvas }.photo_size(6000.0, 4000.0), (400, 267), "twice the canvas, twice the photo");
+        assert_eq!(Canvas { size: 1.0, ..canvas }.photo_size(100.0, 100.0), (400, 400), "a small photo is enlarged to its share");
+        assert_eq!(Canvas { size: f32::NAN, ..canvas }.photo_size(0.0, -3.0), (400, 400), "nonsense in: still a size");
+
+        let (photo_px, paper) = ([10, 20, 30, 255], [250, 250, 250, 255]);
+        let photo = Rgba8 { width: 200, height: 100, data: vec![photo_px; 200 * 100] };
+        let out = canvas.place(&photo, [250, 250, 250]);
+        assert_eq!((out.width, out.height, out.data.len()), (400, 400, 400 * 400));
+        let at = |img: &Rgba8, x: usize, y: usize| img.data[y * img.width + x];
+        // centred: columns 100..300, rows 150..250
+        assert_eq!((at(&out, 0, 0), at(&out, 399, 399)), (paper, paper));
+        assert_eq!((at(&out, 100, 150), at(&out, 299, 249), at(&out, 200, 200)), (photo_px, photo_px, photo_px));
+        assert_eq!((at(&out, 99, 150), at(&out, 100, 149), at(&out, 300, 249), at(&out, 299, 250)), (paper, paper, paper, paper));
+        // its centre a quarter across and down: columns 0..200, rows 50..150
+        let moved = Canvas { x: 0.25, y: 0.25, ..canvas }.place(&photo, [250, 250, 250]);
+        assert_eq!((at(&moved, 0, 50), at(&moved, 199, 149), at(&moved, 200, 100), at(&moved, 0, 49)), (photo_px, photo_px, paper, paper));
+        // at the left edge half of it is off the canvas: columns 0..100 are its right half
+        let cut = Canvas { x: 0.0, ..canvas }.place(&photo, [250, 250, 250]);
+        assert_eq!((at(&cut, 0, 200), at(&cut, 99, 200), at(&cut, 100, 200)), (photo_px, photo_px, paper));
+        // anywhere, and with anything for a photo: the canvas, never a panic
+        for (x, y) in [(0.0, 0.0), (1.0, 1.0), (0.0, 1.0), (f32::NAN, 0.5), (-4.0, 9.0), (f32::INFINITY, f32::NEG_INFINITY)] {
+            assert_eq!(Canvas { x, y, ..canvas }.place(&photo, [0, 0, 0]).data.len(), 400 * 400, "{x} {y}");
+        }
+        let larger = Rgba8 { width: 900, height: 900, data: vec![photo_px; 900 * 900] };
+        assert!(canvas.place(&larger, [0, 0, 0]).data.iter().all(|px| *px == photo_px), "a photo larger than the canvas covers it");
+        let none = Rgba8 { width: 0, height: 0, data: Vec::new() };
+        assert!(canvas.place(&none, [250, 250, 250]).data.iter().all(|px| *px == paper));
+        // a canvas nobody checked is still bounded
+        let wild = Canvas { width: u32::MAX, height: 1, ..canvas }.place(&none, [0, 0, 0]);
+        assert_eq!((wild.width, wild.height), (CANVAS_EDGE_RANGE.1 as usize, 1));
+    }
+
+    #[test]
+    fn canvas_params_are_read_strictly() {
+        let p = json!({"format": "jpeg", "canvas": {"width": 3000, "height": 2000, "size": 0.8}});
+        ExportOptions::validate("app.export", &p).expect("a canvas is an export option");
+        let o = ExportOptions::from_json(&p);
+        assert_eq!(o.canvas, Some(Canvas { width: 3000, height: 2000, size: 0.8, ..Default::default() }));
+        assert_eq!(ExportOptions::from_json(&o.to_json()).canvas, o.canvas, "to_json and back");
+        assert_eq!(ExportOptions::from_json(&json!({})).canvas, None);
+        assert_eq!(ExportOptions::from_json(&ExportOptions::known_keys_only(&p)).canvas, o.canvas, "a stored canvas survives");
+        for (bad, why) in [
+            (json!({"canvas": {"width": 3000, "height": 2000, "colour": [0, 0, 0]}}), "colour"),
+            (json!({"canvas": {"width": 8, "height": 2000}}), "16..20000"),
+            (json!({"canvas": {"width": 20000, "height": 20000}}), "megapixels"),
+            (json!({"canvas": {"width": 3000, "height": 2000, "size": 0.0}}), "`size`"),
+            (json!({"canvas": {"width": 3000, "height": 2000, "x": 1.5}}), "`x`"),
+            (json!({"canvas": {"width": "wide", "height": 2000}}), "canvas"),
+            (json!({"canvas": "3000x2000"}), "object"),
+            (json!({"canvas": {"width": 3000, "height": 2000}, "bitDepth": 16}), "8 bits"),
+            (json!({"canvas": {"width": 3000, "height": 2000}, "hdr": true}), "8 bits"),
+            (json!({"canvas": {"width": 3000, "height": 2000}, "format": "dng"}), "rendered format"),
+        ] {
+            let e = ExportOptions::validate("app.export", &bad).expect_err("refused").to_string();
+            assert!(e.contains(why), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn an_export_on_a_canvas_is_the_canvas_with_the_photo_on_it() {
+        let mut s = crate::Session::with_demo();
+        let id = s.visible()[0];
+        let white = [255, 255, 255, 255];
+        let o = ExportOptions::from_json(&json!({"format": "png", "canvas": {"width": 300, "height": 240, "size": 0.5}}));
+        let out = export_photo(&mut s, id, &o, 1).expect("exports");
+        assert_eq!((out.width, out.height), (300, 240), "the file is the canvas");
+        let img = lightcraft_codecs::decode(&out.bytes, Default::default()).expect("decodes").to_srgb8();
+        assert_eq!((img.width, img.height), (300, 240));
+        let at = |x: usize, y: usize| img.data[y * 300 + x];
+        assert_eq!((at(2, 2), at(297, 237), at(2, 237), at(297, 2)), (white, white, white, white), "the corners are the background");
+        // the photo fills half the canvas at most, around the middle: nothing but paper outside that box
+        let outside = (0..240).flat_map(|y| (0..300).map(move |x| (x, y))).filter(|(x, y)| !(74..226).contains(x) || !(59..181).contains(y));
+        assert!(outside.clone().all(|(x, y)| at(x, y) == white), "the photo reaches outside its share of the canvas");
+        assert!(outside.count() > 0);
+        let inside = (100..200).flat_map(|x| (100..140).map(move |y| (x, y))).filter(|(x, y)| at(*x, *y) != white).count();
+        assert!(inside > 2000, "the photo is not in the middle of the canvas ({inside} of 4000 pixels)");
+
+        // TIFF is 16 bits by default and JPEG may be HDR: on a canvas both are plain 8-bit files of the canvas' size
+        for format in [ExportFormat::Tiff, ExportFormat::Jpeg] {
+            let out = export_photo(&mut s, id, &ExportOptions { format, hdr: true, ..o.clone() }, 1).expect("exports");
+            assert_eq!((out.width, out.height), (300, 240), "{format:?}");
+            let img = lightcraft_codecs::decode(&out.bytes, Default::default()).expect("decodes");
+            assert_eq!((img.width, img.height), (300, 240), "{format:?}");
+        }
+        // nothing to compose in, and a canvas that cannot be made, are errors before any work
+        let e = export_photo(&mut s, id, &ExportOptions { format: ExportFormat::Dng, ..o.clone() }, 1).err().expect("refused");
+        assert!(e.contains("canvas"), "{e}");
+        let huge = Canvas { width: 20_000, height: 20_000, ..Default::default() };
+        let e = export_photo(&mut s, id, &ExportOptions { canvas: Some(huge), ..o.clone() }, 1).err().expect("refused");
+        assert!(e.contains("megapixels"), "{e}");
     }
 }

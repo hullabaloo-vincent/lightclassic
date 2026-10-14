@@ -1,0 +1,721 @@
+//! The Classic frame, headless: the module picker, the columns, the filmstrip across the window, and the Modern
+//! frame left as it was.
+
+use std::time::Duration;
+
+use serde_json::json;
+
+use crate::classic::Module;
+use crate::headless::Headless;
+use crate::state::{RightPanel, ViewMode};
+use crate::{LightcraftApp, Services};
+
+const T: Duration = Duration::from_secs(20);
+const SETTLE: Duration = Duration::from_secs(120);
+const SIZE: [f32; 2] = [1600.0, 1000.0];
+
+fn app(classic: bool) -> LightcraftApp {
+    let services = Services { png: None, ..Default::default() };
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+    app.ui.settings.gpu = false;
+    app.ui.left_panel = true;
+    app.ui.filmstrip = true;
+    app.ui.view = ViewMode::PhotoGrid;
+    app.ui.right = RightPanel::None;
+    if classic {
+        app.run("view.interface", json!({"style": "classic"})).expect("the style is set");
+    }
+    app
+}
+
+fn frame(classic: bool) -> Headless {
+    let mut h = Headless::new(app(classic), SIZE, 1.0);
+    assert!(h.settle(SETTLE), "the window never comes to rest");
+    h
+}
+
+fn widget(h: &Headless, id: &str) -> Option<egui::Rect> {
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r)
+}
+
+fn rect(h: &Headless, id: &str) -> egui::Rect {
+    widget(h, id).unwrap_or_else(|| panic!("no {id} on screen"))
+}
+
+fn click(h: &mut Headless, id: &str) {
+    let r = h.request("ui.clickWidget", json!({"id": id}), T);
+    assert_eq!(r["ok"], true, "{id}: {r}");
+    h.settle(SETTLE);
+}
+
+#[test]
+fn the_classic_frame_has_a_module_picker_columns_and_a_filmstrip_across_the_window() {
+    let mut h = frame(true);
+    assert_eq!(h.app.ui.classic.module, Module::Library);
+
+    // the module picker: Library | Develop | Print at the right, under the top bar
+    let (library, develop, print) = (rect(&h, "module:library"), rect(&h, "module:develop"), rect(&h, "module:print"));
+    assert!(library.right() <= develop.left() + 1.5, "Library {library:?} is left of Develop {develop:?}");
+    assert!(develop.right() <= print.left() + 1.5, "Develop {develop:?} is left of Print {print:?}");
+    assert!(print.right() > SIZE[0] - 40.0, "the picker sits at the right: {print:?}");
+    assert!(widget(&h, "icon:edit").is_none(), "the Modern tool strip is drawn in the Classic frame");
+
+    // the filmstrip runs under both columns, the whole width of the window
+    let film = rect(&h, "panel:filmstrip");
+    assert!(film.left() < 0.5 && film.right() > SIZE[0] - 0.5 && film.bottom() > SIZE[1] - 0.5, "{film:?}");
+    let left = rect(&h, "panel:left_panel");
+    assert!(left.bottom() <= film.top() + 0.5 && left.top() >= library.bottom() - 0.5, "left column {left:?}");
+    let cells: Vec<egui::Rect> = h.app.widgets.iter().filter(|(w, _)| w.starts_with("film:")).map(|(_, r)| *r).collect();
+    assert!(!cells.is_empty(), "the filmstrip has no photos");
+    assert!(cells.iter().all(|c| c.top() >= film.top() - 0.5), "a filmstrip cell outside the strip: {cells:?}");
+
+    // the Library shows no develop panels
+    assert!(widget(&h, "slider:light.exposure").is_none());
+    assert!(widget(&h, "icon:crop").is_none());
+
+    // Develop: the photo, its panels on the right with the tools above them, and still one filmstrip
+    click(&mut h, "module:develop");
+    assert_eq!((h.app.ui.classic.module, h.app.ui.view), (Module::Develop, ViewMode::Detail));
+    let right = rect(&h, "panel:right_panel");
+    assert!(right.right() > SIZE[0] - 0.5 && right.bottom() <= film.top() + 0.5, "right column {right:?}");
+    let exposure = rect(&h, "slider:light.exposure");
+    assert!(right.contains_rect(exposure), "Exposure {exposure:?} outside the right column {right:?}");
+    for tool in ["icon:crop", "icon:remove", "icon:redeye", "icon:masking"] {
+        let r = rect(&h, tool);
+        assert!(right.contains_rect(r) && r.bottom() <= exposure.top(), "{tool} {r:?} is above the panels in the right column");
+    }
+    let mut cells: Vec<String> = h.app.widgets.iter().filter(|(w, _)| w.starts_with("film:")).map(|(w, _)| w.clone()).collect();
+    let drawn = cells.len();
+    cells.sort();
+    cells.dedup();
+    assert_eq!(cells.len(), drawn, "the loupe drew a second filmstrip inside the photo area");
+    assert!(h.app.ui.filmstrip, "the filmstrip setting was lost while the loupe was drawn");
+
+    // a tool opens in place of the panels and its button puts it away again
+    click(&mut h, "icon:crop");
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Crop, Module::Develop));
+    click(&mut h, "icon:crop");
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Edit, Module::Develop));
+
+    // and back
+    click(&mut h, "module:library");
+    assert_eq!((h.app.ui.classic.module, h.app.ui.view), (Module::Library, ViewMode::PhotoGrid));
+    assert!(widget(&h, "panel:right_panel").is_none(), "the Library has no panel open on the right");
+}
+
+#[test]
+fn the_filmstrip_and_the_left_column_can_be_hidden() {
+    let mut h = frame(true);
+    let r = h.request("engine.execute", json!({"command": "view.filmstrip", "params": {}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(!h.app.ui.filmstrip);
+    assert!(widget(&h, "panel:filmstrip").is_none());
+    assert!(!h.app.widgets.iter().any(|(w, _)| w.starts_with("film:")), "filmstrip cells drawn while it is hidden");
+    let r = h.request("engine.execute", json!({"command": "view.leftPanel", "params": {}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(widget(&h, "panel:left_panel").is_none());
+}
+
+#[test]
+fn the_modern_frame_is_as_it_was() {
+    let mut h = frame(false);
+    assert!(widget(&h, "module:library").is_none() && widget(&h, "module:develop").is_none());
+    assert!(widget(&h, "panel:filmstrip").is_none());
+    assert!(widget(&h, "icon:edit").is_some(), "the tool strip");
+    // switching styles redraws the other frame at once, both ways
+    let r = h.request("engine.execute", json!({"command": "view.interface", "params": {"style": "classic"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(widget(&h, "module:library").is_some() && widget(&h, "icon:edit").is_none());
+    let r = h.request("engine.execute", json!({"command": "view.interface", "params": {"style": "modern"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(widget(&h, "module:library").is_none() && widget(&h, "icon:edit").is_some());
+}
+
+/// A photo has one thumbnail. With a grid and the filmstrip on screen together, each asking for its own size had the
+/// other's rendered again on every frame, and the window never came to rest.
+#[test]
+fn the_grid_and_the_filmstrip_share_their_thumbnails() {
+    let mut h = frame(true);
+    assert!(h.app.widgets.iter().any(|(w, _)| w.starts_with("film:")), "no filmstrip beside the grid");
+    let built = h.app.renderer.thumb_jobs_built;
+    // one request each while they load, not one a frame: each asked once, and the photos in both places once more
+    // when the grid's larger size replaces the filmstrip's
+    let photos = h.app.session.catalog.len();
+    assert!(built > 0 && built <= 2 * photos, "{built} thumbnail requests for {photos} photos");
+    for _ in 0..40 {
+        h.step();
+    }
+    assert_eq!(h.app.renderer.thumb_jobs_built, built, "thumbnails are rendered again on every frame");
+    // a larger grid asks for larger thumbnails, once
+    let r = h.request("ui.set", json!({"thumbSize": 420.0}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(h.settle(SETTLE), "the window never comes to rest with larger thumbnails");
+    let built = h.app.renderer.thumb_jobs_built;
+    for _ in 0..40 {
+        h.step();
+    }
+    assert_eq!(h.app.renderer.thumb_jobs_built, built, "thumbnails are rendered again on every frame at the larger size");
+}
+
+// ------------------------------------------------------------------------------------ Develop's panels
+
+use crate::classic::DevelopPanel;
+
+/// The demo library in the Classic Develop module.
+fn develop() -> Headless {
+    let mut app = app(true);
+    app.run("module.develop", json!({})).expect("Develop opens");
+    let mut h = Headless::new(app, SIZE, 1.0);
+    assert!(h.settle(SETTLE), "Develop never comes to rest");
+    h
+}
+
+fn exec(h: &mut Headless, command: &str, params: serde_json::Value) -> serde_json::Value {
+    let r = h.request("engine.execute", json!({"command": command, "params": params}), T);
+    assert_eq!(r["ok"], true, "{command}: {r}");
+    h.settle(SETTLE);
+    r["result"].clone()
+}
+
+fn sliders(h: &Headless) -> Vec<String> {
+    h.app.widgets.iter().filter(|(w, _)| w.starts_with("slider:")).map(|(w, _)| w.clone()).collect()
+}
+
+fn unique(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Unfold everything either style folds: the Edit sections, the Classic panels and the flyouts; HDR on, for its
+/// sliders.
+fn open_everything(h: &mut Headless) {
+    exec(h, "develop.hdr", json!({"enabled": true}));
+    h.app.ui.histogram = true;
+    h.app.ui.open_sections = ["light", "color", "effects", "detail", "optics", "calibration"].map(String::from).to_vec();
+    for panel in DevelopPanel::ALL {
+        if !h.app.ui.section_open(panel.open_id()) {
+            h.app.ui.open_sections.push(panel.open_id().to_string());
+        }
+    }
+    h.app.ui.open_flyouts = ["curve", "mixer", "pointColor", "grading", "defringe", "sdrRendition"].map(String::from).to_vec();
+    h.app.ui.classic.hsl = crate::classic::HslView::All;
+    assert!(h.settle(SETTLE), "the window never comes to rest with every panel open");
+}
+
+#[test]
+fn develop_has_classics_panels_in_classics_order() {
+    let h = develop();
+    // the histogram, the tools under it, then the panels
+    let histogram = rect(&h, "classicPanel:histogram");
+    let tools = rect(&h, "icon:crop");
+    assert!(histogram.bottom() <= tools.top() + 0.5, "the tools {tools:?} are under the histogram's header {histogram:?}");
+    let mut above = tools.bottom() - 0.5;
+    let order = ["basic", "toneCurve", "hsl", "colorGrading", "detail", "lensCorrections", "transform", "effects", "calibration"];
+    assert_eq!(DevelopPanel::ALL.map(DevelopPanel::id), order);
+    for id in order {
+        let r = rect(&h, &format!("classicPanel:{id}"));
+        assert!(r.top() >= above, "the {id} header {r:?} is not under what comes before it ({above})");
+        above = r.bottom() - 0.5;
+    }
+    // not the Edit panel's sections
+    for section in ["light", "color", "optics"] {
+        assert!(widget(&h, &format!("section:{section}")).is_none(), "the Edit panel's {section} section is drawn in Classic Develop");
+    }
+}
+
+#[test]
+fn a_panel_folds_by_its_header_its_command_and_the_edit_sections_keys() {
+    let mut h = develop();
+    h.app.ui.open_sections = vec!["light".to_string()];
+    h.settle(SETTLE);
+    assert!(widget(&h, "slider:light.exposure").is_some(), "Basic is open");
+    assert!(widget(&h, "slider:effects.clarity").is_some(), "Presence is part of Basic");
+
+    click(&mut h, "classicPanel:basic");
+    assert!(widget(&h, "slider:light.exposure").is_none(), "a click on its header folds Basic");
+    let r = exec(&mut h, "view.classicPanel", json!({"panel": "basic", "open": true}));
+    assert_eq!(r, json!({"panel": "basic", "open": true}));
+    assert!(widget(&h, "slider:light.exposure").is_some());
+    // the same again changes nothing
+    exec(&mut h, "view.classicPanel", json!({"panel": "basic", "open": true}));
+    assert!(widget(&h, "slider:light.exposure").is_some());
+
+    // a panel with no Edit section of its own
+    assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": "transform"}))["open"], true);
+    assert!(widget(&h, "slider:geometry.vertical").is_some(), "Transform shows the geometry sliders");
+    assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": "transform"}))["open"], false);
+    assert!(widget(&h, "slider:geometry.vertical").is_none());
+
+    // the Edit sections' commands (⌘1–5) fold the panels that stand for them
+    exec(&mut h, "section.light", json!({}));
+    assert!(widget(&h, "slider:light.exposure").is_none(), "section.light folds Basic");
+    exec(&mut h, "section.optics", json!({}));
+    assert!(widget(&h, "slider:optics.distortion").is_some(), "section.optics unfolds Lens Corrections");
+
+    // the histogram's header folds it
+    assert!(h.app.ui.histogram);
+    assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": "histogram"}))["open"], false);
+    assert!(!h.app.ui.histogram);
+    click(&mut h, "classicPanel:histogram");
+    assert!(h.app.ui.histogram);
+
+    for bad in [json!({}), json!({"panel": "curves"}), json!({"panel": "basic", "open": "yes"}), json!({"panel": 4})] {
+        let r = h.request("engine.execute", json!({"command": "view.classicPanel", "params": bad.clone()}), T);
+        assert_eq!(r["ok"], false, "{bad} is refused: {r}");
+    }
+}
+
+/// The tripwire for controls added upstream: whatever slider the Modern Edit and Crop panels show, the Classic
+/// panels show too, and none twice.
+#[test]
+fn every_slider_of_the_edit_and_crop_panels_is_in_the_classic_panels() {
+    let mut modern = {
+        let mut app = app(false);
+        app.ui.view = ViewMode::Detail;
+        app.ui.right = RightPanel::Edit;
+        Headless::new(app, SIZE, 1.0)
+    };
+    open_everything(&mut modern);
+    let mut want = sliders(&modern);
+    exec(&mut modern, "panel.crop", json!({}));
+    want.extend(sliders(&modern));
+    let want = unique(want);
+    assert!(want.len() > 60, "the Modern panels show only {} sliders: is everything open?", want.len());
+
+    let mut h = develop();
+    open_everything(&mut h);
+    let panels = sliders(&h);
+    assert_eq!(unique(panels.clone()).len(), panels.len(), "a slider is drawn twice in the Classic panels: {panels:?}");
+    // with the Crop tool open: its own sliders above the panels, and Transform's geometry still once
+    exec(&mut h, "panel.crop", json!({}));
+    assert_eq!(h.app.ui.right, RightPanel::Crop);
+    let with_crop = sliders(&h);
+    assert_eq!(unique(with_crop.clone()).len(), with_crop.len(), "a slider is drawn twice beside the Crop tool: {with_crop:?}");
+    assert!(with_crop.iter().any(|s| s == "slider:crop.angle") && with_crop.iter().any(|s| s == "slider:light.exposure"));
+
+    let have = unique(panels.into_iter().chain(with_crop).collect());
+    let missing: Vec<&String> = want.iter().filter(|w| !have.contains(w)).collect();
+    assert!(missing.is_empty(), "sliders of the Modern panels that the Classic panels lack: {missing:?}");
+}
+
+#[test]
+fn a_slider_drag_in_a_classic_panel_is_one_undo_step() {
+    let mut h = develop();
+    h.app.ui.open_sections = vec!["light".to_string()];
+    h.settle(SETTLE);
+    let steps = |h: &mut Headless| exec(h, "history.list", json!({}))["history"].as_array().map_or(0, Vec::len);
+    let exposure = |h: &Headless| h.app.session.active().and_then(|id| h.app.session.develop_of(id)).map_or(0.0, |d| d.light.exposure);
+    let before = steps(&mut h);
+    assert_eq!(exposure(&h), 0.0);
+    let r = h.request("ui.dragWidget", json!({"id": "slider:light.exposure", "dx": 50.0, "steps": 8}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(exposure(&h) > 0.0, "the drag moved Exposure");
+    assert_eq!(steps(&mut h), before + 1, "one History step for the whole drag");
+}
+
+#[test]
+fn switches_turn_a_panels_section_off_and_bring_back_one_the_edit_panel_turned_off() {
+    let mut h = develop();
+    // every panel folded, so that every header is in view to click
+    h.app.ui.open_sections.clear();
+    h.settle(SETTLE);
+    let enabled =
+        |h: &Headless, section: &str| h.app.session.active().and_then(|id| h.app.session.develop_of(id)).is_some_and(|d| d.section_enabled(section));
+    // the panels that are a whole develop section have a switch; Basic has none while everything is on
+    for id in ["detail", "lensCorrections", "transform", "calibration"] {
+        assert!(widget(&h, &format!("classicSwitch:{id}")).is_some(), "{id} has a switch");
+    }
+    for id in ["basic", "toneCurve", "hsl", "colorGrading", "effects"] {
+        assert!(widget(&h, &format!("classicSwitch:{id}")).is_none(), "{id} shows a switch with nothing switched off");
+    }
+    click(&mut h, "classicSwitch:detail");
+    assert!(!enabled(&h, "detail"), "the switch turns Detail off");
+    click(&mut h, "classicSwitch:detail");
+    assert!(enabled(&h, "detail"));
+
+    // Effects switched off in the Modern Edit panel also silences Basic's Texture, Clarity and Dehaze: both panels
+    // then show the way back
+    exec(&mut h, "develop.sectionEnabled", json!({"section": "effects", "enabled": false}));
+    assert!(!enabled(&h, "effects"));
+    assert!(widget(&h, "classicSwitch:basic").is_some() && widget(&h, "classicSwitch:effects").is_some());
+    click(&mut h, "classicSwitch:basic");
+    assert!(enabled(&h, "effects"), "Basic's switch turns Effects back on");
+    assert!(widget(&h, "classicSwitch:basic").is_none());
+}
+
+#[test]
+fn a_tool_opens_under_the_tool_strip_above_the_panels() {
+    let mut h = develop();
+    h.app.ui.open_sections = vec!["light".to_string()];
+    exec(&mut h, "panel.crop", json!({}));
+    let (tools, angle, basic) = (rect(&h, "icon:crop"), rect(&h, "slider:crop.angle"), rect(&h, "classicPanel:basic"));
+    assert!(tools.bottom() <= angle.top() && angle.bottom() <= basic.top(), "tools {tools:?}, Crop's angle {angle:?}, Basic {basic:?}");
+    // the profile browser takes the column, and Develop's panels come back after it
+    exec(&mut h, "panel.profiles", json!({}));
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Profiles, Module::Develop));
+    assert!(widget(&h, "classicPanel:basic").is_none());
+    exec(&mut h, "panel.profiles", json!({}));
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+    assert!(widget(&h, "classicPanel:basic").is_some());
+}
+
+// ------------------------------------------------------------------------------------ Develop's left column
+
+use crate::classic::LeftPanel;
+
+fn exposure(h: &Headless) -> f64 {
+    h.app.session.active().and_then(|id| h.app.session.develop_of(id)).map_or(0.0, |d| d.light.exposure)
+}
+
+#[test]
+fn develops_left_column_is_navigator_presets_snapshots_history() {
+    let mut h = develop();
+    let left = rect(&h, "panel:left_panel");
+    let mut above = left.top() - 0.5;
+    for panel in LeftPanel::ALL {
+        let r = rect(&h, &format!("classicPanel:{}", panel.id()));
+        assert!(left.contains_rect(r) && r.top() >= above, "the {} header {r:?} in the left column {left:?}, under {above}", panel.id());
+        above = r.bottom() - 0.5;
+    }
+    assert!(widget(&h, "sidebarTitle").is_none(), "the Library's sources are drawn in Develop's left column");
+    // the Library keeps its own
+    click(&mut h, "module:library");
+    assert!(widget(&h, "sidebarTitle").is_some());
+    assert!(widget(&h, "classicPanel:navigator").is_none());
+}
+
+#[test]
+fn left_panels_fold_by_header_and_command() {
+    let mut h = develop();
+    assert!(h.app.ui.navigator, "the Navigator starts unfolded");
+    let photo = rect(&h, "classicNavigator");
+    assert!(rect(&h, "panel:left_panel").contains_rect(photo), "the Navigator shows the photo: {photo:?}");
+    click(&mut h, "classicPanel:navigator");
+    assert!(!h.app.ui.navigator && widget(&h, "classicNavigator").is_none());
+    assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": "navigator", "open": true})), json!({"panel": "navigator", "open": true}));
+    assert!(widget(&h, "classicNavigator").is_some());
+
+    for panel in [LeftPanel::Presets, LeftPanel::Snapshots, LeftPanel::History] {
+        let was = panel.open(&h.app.ui);
+        assert_eq!(exec(&mut h, "view.classicPanel", json!({"panel": panel.id()}))["open"], !was, "{}", panel.id());
+        assert_eq!(panel.open(&h.app.ui), !was);
+        click(&mut h, &format!("classicPanel:{}", panel.id()));
+        assert_eq!(panel.open(&h.app.ui), was, "a click on the {} header folds it back", panel.id());
+    }
+}
+
+#[test]
+fn the_navigator_moves_the_loupe_and_replaces_its_mini_map() {
+    let mut h = develop();
+    exec(&mut h, "view.zoom100", json!({}));
+    assert!(widget(&h, "canvas:navigator").is_none(), "the loupe draws its mini map beside the Navigator panel");
+    assert!(h.app.ui.navigator, "the Navigator setting was lost while the loupe was drawn");
+    let before = h.app.ui.pan;
+    let r = h.request("ui.clickWidget", json!({"id": "classicNavigator", "fx": 0.2, "fy": 0.8}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let pan = h.app.ui.pan;
+    assert_ne!(pan, before, "a click in the Navigator moves the loupe");
+    assert!((pan.0 - 0.2).abs() < 0.05 && (pan.1 - 0.8).abs() < 0.05, "to the point clicked: {pan:?}");
+    // with the left column hidden the loupe has its mini map back
+    exec(&mut h, "view.leftPanel", json!({}));
+    assert!(widget(&h, "canvas:navigator").is_some(), "no mini map with the left column hidden");
+}
+
+#[test]
+fn versions_and_history_commands_fold_the_left_panels_in_develop() {
+    let mut h = develop();
+    assert!(!LeftPanel::Snapshots.open(&h.app.ui));
+    exec(&mut h, "panel.versions", json!({}));
+    assert!(LeftPanel::Snapshots.open(&h.app.ui), "Shift+V unfolds Snapshots");
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Edit, Module::Develop), "and leaves Develop's panels on the right");
+    assert!(widget(&h, "button:versionCreate").is_some(), "Snapshots shows the versions");
+    assert!(rect(&h, "panel:left_panel").contains_rect(rect(&h, "button:versionCreate")));
+    exec(&mut h, "panel.versions", json!({}));
+    assert!(!LeftPanel::Snapshots.open(&h.app.ui));
+
+    // History: two edits, then back to the first by its row
+    exec(&mut h, "develop.set", json!({"control": "light.exposure", "value": 1.0}));
+    exec(&mut h, "develop.set", json!({"control": "light.exposure", "value": 2.0}));
+    if !LeftPanel::History.open(&h.app.ui) {
+        exec(&mut h, "panel.activity", json!({}));
+    }
+    assert!(LeftPanel::History.open(&h.app.ui));
+    let steps = exec(&mut h, "history.list", json!({}))["history"].as_array().map_or(0, Vec::len);
+    assert!(steps >= 2, "{steps} history steps");
+    assert_eq!(exposure(&h), 2.0);
+    click(&mut h, &format!("history:{}", steps - 2));
+    assert_eq!(exposure(&h), 1.0, "a click on a History row goes back to that step");
+
+    // a hidden left column comes back for the panel asked for
+    exec(&mut h, "view.leftPanel", json!({}));
+    assert!(!h.app.ui.left_panel);
+    exec(&mut h, "panel.activity", json!({}));
+    assert!(h.app.ui.left_panel && LeftPanel::History.open(&h.app.ui), "History asked for with the column hidden shows the column");
+
+    // in the Library they are the right-hand panels they always were
+    exec(&mut h, "module.library", json!({}));
+    exec(&mut h, "view.detail", json!({}));
+    exec(&mut h, "panel.versions", json!({}));
+    assert_eq!((h.app.ui.right, h.app.ui.classic.module), (RightPanel::Versions, Module::Library));
+}
+
+#[test]
+fn presets_has_its_buttons_in_the_header_and_its_list_under_it() {
+    let mut h = develop();
+    exec(&mut h, "view.classicPanel", json!({"panel": "presets", "open": true}));
+    let header = rect(&h, "classicPanel:presets");
+    let column = rect(&h, "panel:left_panel");
+    // the first row of the list sits right under the header: the panel's own title row is hidden behind it (a
+    // title row of another height would leave a gap, or cut into the list)
+    let rows: Vec<egui::Rect> = h
+        .app
+        .widgets
+        .iter()
+        .filter(|(w, r)| (w.starts_with("presetGroup:") || w.starts_with("preset:")) && r.top() >= header.bottom() - 0.5)
+        .map(|(_, r)| *r)
+        .collect();
+    let first = rows.iter().map(|r| r.top()).fold(f32::INFINITY, f32::min);
+    assert!(first - header.bottom() < 6.0, "the presets start {} pt under their header", first - header.bottom());
+    assert!(rows.iter().all(|r| column.contains_rect(*r) || r.top() >= column.bottom()), "a preset row outside the left column");
+    // Create Preset is the header's button
+    let create = h.app.widgets.iter().rev().find(|(w, _)| w == "icon:presetCreate").map(|(_, r)| *r).expect("Create Preset");
+    assert!(header.contains_rect(create), "Create Preset {create:?} is in the header {header:?}");
+    click(&mut h, "icon:presetCreate");
+    assert!(h.app.ui.dialog.is_some(), "Create Preset opens its dialog");
+}
+
+// ------------------------------------------------------------------------------------ HSL / Color and B&W
+
+#[test]
+fn hsl_shows_every_colour_and_is_the_bw_mix_in_black_and_white() {
+    let mut h = develop();
+    h.app.ui.open_sections = vec!["color".to_string()];
+    h.settle(SETTLE);
+    let colours = lightcraft_develop::MIXER_BANDS;
+    let shown = |h: &Headless, prefix: &str| sliders(h).into_iter().filter(|s| s.starts_with(prefix)).count();
+    // one attribute at a time, for all eight colours
+    for colour in colours {
+        assert!(widget(&h, &format!("slider:mixer.{colour}.hue")).is_some(), "no Hue slider for {colour}");
+    }
+    assert_eq!(shown(&h, "slider:mixer."), 8, "Hue shows the eight Hue sliders only");
+    click(&mut h, "button:hslView-sat");
+    assert_eq!(h.app.ui.classic.hsl, crate::classic::HslView::Saturation);
+    assert!(colours.iter().all(|c| widget(&h, &format!("slider:mixer.{c}.sat")).is_some()) && shown(&h, "slider:mixer.") == 8);
+    click(&mut h, "button:hslView-all");
+    assert_eq!(shown(&h, "slider:mixer."), 24, "All shows hue, saturation and luminance for every colour");
+    // a slider there is the photo's own control
+    exec(&mut h, "develop.set", json!({"control": "mixer.blue.sat", "value": -40.0}));
+    let saturation = h.app.session.active().and_then(|id| h.app.session.develop_of(id)).map(|d| d.mixer.blue.sat);
+    assert_eq!(saturation, Some(-40.0));
+    assert!(h.painted_text().iter().any(|t| t == "HSL / Color"), "the colour panel is titled HSL / Color");
+
+    // black and white: the panel is B&W, with one slider for each colour's share of the grey
+    exec(&mut h, "develop.treatment", json!({}));
+    assert_eq!(shown(&h, "slider:mixer."), 0, "colour sliders are shown for a black-and-white photo");
+    for colour in colours {
+        assert!(widget(&h, &format!("slider:bw.{colour}")).is_some(), "no B&W mix slider for {colour}");
+    }
+    assert!(widget(&h, "button:bwAuto").is_some(), "the B&W mix has its Auto");
+    let text = h.painted_text();
+    assert!(!text.iter().any(|t| t == "HSL / Color"), "a black-and-white photo's panel is still titled HSL / Color");
+    // (Basic, with its B&W button, is folded here: the only "B&W" on screen is the panel's title)
+    assert!(text.iter().any(|t| t == "B&W"), "the panel is not titled B&W: {text:?}");
+}
+
+#[test]
+fn the_classic_top_bar_has_no_cloud_or_chat_icon() {
+    let h = frame(true);
+    for gone in ["icon:cloud", "icon:discord"] {
+        assert!(widget(&h, gone).is_none(), "{gone} is in the Classic top bar");
+    }
+    // the others close up: Help is the rightmost
+    let (help, share, bell) = (rect(&h, "icon:help"), rect(&h, "icon:share"), rect(&h, "icon:bell"));
+    assert!(
+        help.right() > SIZE[0] - 40.0 && share.right() <= help.left() + 12.5 && bell.right() <= share.left() + 12.5,
+        "{help:?} {share:?} {bell:?}"
+    );
+    let modern = frame(false);
+    assert!(widget(&modern, "icon:cloud").is_some() && widget(&modern, "icon:discord").is_some(), "the Modern top bar keeps both");
+}
+
+// ------------------------------------------------------------------------------------ Print
+
+use crate::classic::print::PrintLayout;
+
+/// The demo library in the Classic Print module.
+fn printing() -> Headless {
+    let mut app = app(true);
+    app.run("module.print", json!({})).expect("Print opens");
+    let mut h = Headless::new(app, SIZE, 1.0);
+    assert!(h.settle(SETTLE), "Print never comes to rest");
+    h
+}
+
+/// Where the photo's centre is on the page, as fractions of it, and its larger share of the page.
+fn on_page(h: &Headless) -> (f32, f32, f32) {
+    let (page, photo) = (rect(h, "printPage"), rect(h, "printPhoto"));
+    let x = (photo.center().x - page.left()) / page.width();
+    let y = (photo.center().y - page.top()) / page.height();
+    (x, y, (photo.width() / page.width()).max(photo.height() / page.height()))
+}
+
+#[test]
+fn print_shows_the_page_with_the_photo_where_the_layout_puts_it() {
+    let mut h = printing();
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    assert_eq!(h.app.ui.classic.print, PrintLayout::default());
+    // the page as it starts: square, the photo fitted inside 85 % of it, in the middle
+    let page = rect(&h, "printPage");
+    assert!((page.width() - page.height()).abs() < 1.0, "the page is square: {page:?}");
+    assert!(page.contains_rect(rect(&h, "printPhoto")));
+    let (x, y, share) = on_page(&h);
+    assert!((x - 0.5).abs() < 0.005 && (y - 0.5).abs() < 0.005 && (share - 0.85).abs() < 0.01, "at {x} {y}, {share} of the page");
+    // Print's own panels, in place of the loupe and its tools
+    for id in [
+        "classicPanel:printLayout",
+        "classicPanel:printPhoto",
+        "classicPanel:printPage",
+        "classicPanel:printJob",
+        "slider:print.size",
+        "button:printToFile",
+    ] {
+        assert!(widget(&h, id).is_some(), "no {id} in Print");
+    }
+    for id in ["slider:light.exposure", "canvas:image", "icon:crop", "classicPanel:basic"] {
+        assert!(widget(&h, id).is_none(), "{id} is drawn in Print");
+    }
+    assert!(widget(&h, "panel:filmstrip").is_some() && widget(&h, "sidebarTitle").is_some(), "the filmstrip and the sources, to choose photos");
+
+    // a wide page, and the photo a quarter of the way across it at half the size
+    let page = exec(&mut h, "print.set", json!({"shape": "16x9", "longEdge": 4000, "size": 0.5, "x": 0.25}));
+    assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(4000), Some(2250)));
+    assert_eq!(h.app.ui.classic.print.shape(), Some("16x9"));
+    let drawn = rect(&h, "printPage");
+    assert!((drawn.width() / drawn.height() - 16.0 / 9.0).abs() < 0.01, "{drawn:?}");
+    let (x, y, share) = on_page(&h);
+    assert!((x - 0.25).abs() < 0.005 && (y - 0.5).abs() < 0.005 && (share - 0.5).abs() < 0.01, "at {x} {y}, {share} of the page");
+    // the long edge alone keeps the shape; the background has names
+    let page = exec(&mut h, "print.set", json!({"longEdge": 2000, "background": "black"}));
+    assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(2000), Some(1125)));
+    assert_eq!(h.app.ui.classic.print.canvas.background, [0, 0, 0]);
+
+    // Print holds while the photo changes, and a view command leaves it
+    let other = h.app.session.visible_cloned()[1].0;
+    exec(&mut h, "library.select", json!({"ids": [other]}));
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    exec(&mut h, "view.gridToggle", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Library);
+    assert!(widget(&h, "printPage").is_none());
+    // from Develop and back: Develop is still there under it
+    exec(&mut h, "module.develop", json!({}));
+    exec(&mut h, "module.print", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Print);
+    exec(&mut h, "module.library", json!({}));
+    assert_eq!(h.app.ui.classic.module, Module::Library, "Library from Print over Develop is the Library, not Develop");
+    assert!(matches!(h.app.ui.view, ViewMode::PhotoGrid | ViewMode::SquareGrid), "back at the Library's grid: {:?}", h.app.ui.view);
+}
+
+#[test]
+fn dragging_the_photo_moves_it_and_keeps_it_on_the_page() {
+    let mut h = printing();
+    exec(&mut h, "print.set", json!({"size": 0.4}));
+    let drag = |h: &mut Headless, dx: f32, dy: f32| {
+        let r = h.request("ui.dragWidget", json!({"id": "printPhoto", "dx": dx, "dy": dy, "steps": 8}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+    };
+    let before = h.app.ui.classic.print.canvas;
+    drag(&mut h, 120.0, -70.0);
+    let after = h.app.ui.classic.print.canvas;
+    assert!(after.x > before.x + 0.05 && after.y < before.y - 0.03, "{before:?} to {after:?}");
+    let (x, y, _) = on_page(&h);
+    assert!((x - after.x).abs() < 0.005 && (y - after.y).abs() < 0.005, "the page shows the photo where the layout says");
+    // far past the corner: it stops with its edges on the page's
+    drag(&mut h, 4000.0, 4000.0);
+    let (page, photo) = (rect(&h, "printPage"), rect(&h, "printPhoto"));
+    assert!(page.expand(0.6).contains_rect(photo), "the photo {photo:?} left the page {page:?}");
+    assert!(
+        (photo.right() - page.right()).abs() < 1.5 && (photo.bottom() - page.bottom()).abs() < 1.5,
+        "it rests in the corner: {photo:?} on {page:?}"
+    );
+    // near the middle it catches on the centre lines
+    exec(&mut h, "print.set", json!({"x": 0.506, "y": 0.494}));
+    drag(&mut h, 1.0, 0.0);
+    let caught = h.app.ui.classic.print.canvas;
+    assert_eq!((caught.x, caught.y), (0.5, 0.5), "a photo let go near the middle is in the middle");
+}
+
+#[test]
+fn print_settings_are_checked_and_print_is_a_classic_module() {
+    let mut h = printing();
+    let bad = [
+        json!({"colour": "white"}),
+        json!({"shape": "7x7"}),
+        json!({"size": 3}),
+        json!({"x": -0.2}),
+        json!({"width": 5}),
+        json!({"longEdge": 99999}),
+        json!({"width": 20000, "height": 20000}),
+        json!({"background": "pink"}),
+        json!({"background": [1, 2]}),
+        json!({"format": "gif"}),
+        json!({"quality": 0}),
+        json!({"size": 0.5, "y": "low"}),
+    ];
+    for params in bad {
+        let r = h.request("engine.execute", json!({"command": "print.set", "params": params.clone()}), T);
+        assert_eq!(r["ok"], false, "{params} is refused: {r}");
+        assert_eq!(h.app.ui.classic.print, PrintLayout::default(), "{params}: refused, yet something changed");
+    }
+    for params in [json!({"dir": 3}), json!({"folder": "/tmp"})] {
+        let r = h.request("engine.execute", json!({"command": "print.export", "params": params.clone()}), T);
+        assert_eq!(r["ok"], false, "{params} is refused: {r}");
+    }
+    // the layout is saved with the other settings
+    exec(&mut h, "print.set", json!({"shape": "4x5", "size": 0.7, "format": "png"}));
+    let saved = serde_json::to_value(&h.app.ui).expect("the state serializes");
+    let loaded: crate::UiState = serde_json::from_value(saved).expect("and loads");
+    assert_eq!(loaded.classic.print, h.app.ui.classic.print);
+    assert_eq!(loaded.classic.module, Module::Print);
+
+    // the Modern style has no Print module, and says where it is
+    let mut modern = app(false);
+    let e = modern.run("module.print", json!({})).expect_err("no Print in the Modern style");
+    assert!(e.contains("Classic"), "{e}");
+    assert_ne!(modern.ui.classic.module, Module::Print);
+}
+
+#[test]
+fn print_to_file_writes_the_page_with_the_photo_on_it() {
+    let written: std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>> = Default::default();
+    let sink = written.clone();
+    let mut app = app(true);
+    app.services.write = Some(Box::new(move |path: &str, bytes: &[u8]| {
+        sink.lock().unwrap().push((path.to_string(), bytes.to_vec()));
+        Ok(())
+    }));
+    app.run("module.print", json!({})).expect("Print opens");
+    app.run("print.set", json!({"width": 400, "height": 300, "size": 0.5, "x": 0.5, "y": 0.5, "background": "grey", "format": "png"}))
+        .expect("the page is set");
+    let dir = std::env::temp_dir().join("lc-print-test").to_string_lossy().into_owned();
+    let out = app.run("print.export", json!({"dir": dir, "background": false})).expect("prints");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
+    assert_eq!(app.ui.classic.print.dir, dir, "the folder is remembered for Print");
+    assert!(app.session.last_export.is_none(), "Print left its page in the Export dialog's last settings");
+    let files = written.lock().unwrap();
+    let (path, bytes) = files.first().expect("a file was written");
+    assert!(path.starts_with(&dir) && path.ends_with("-print.png"), "{path}");
+    let img = lightcraft_codecs::decode(bytes, Default::default()).expect("a PNG").to_srgb8();
+    assert_eq!((img.width, img.height), (400, 300), "the file is the page");
+    let at = |x: usize, y: usize| img.data[y * 400 + x];
+    assert_eq!((at(3, 3), at(396, 296)), ([128, 128, 128, 255], [128, 128, 128, 255]), "the page's corners are its background");
+    let photo = (150..250).flat_map(|x| (120..180).map(move |y| (x, y))).filter(|(x, y)| at(*x, *y) != [128, 128, 128, 255]).count();
+    assert!(photo > 3000, "the photo is not in the middle of the page ({photo} of 6000 pixels)");
+}

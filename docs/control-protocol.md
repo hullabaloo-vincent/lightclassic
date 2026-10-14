@@ -109,6 +109,22 @@ Auto → Light → Dark → Auto, like the top bar's `icon:appearance` button) a
 Both reply `{mode, darkTheme, lightTheme}`; the same values are `settings.appearanceMode`,
 `settings.darkTheme` and `settings.lightTheme` in `ui.set`. Auto follows the system (on Linux the
 XDG desktop portal, watched for changes rather than polled) and is dark when the system says nothing.
+
+The interface style is `view.interface {style?: "classic" | "modern"}` (no style: the other one), replying
+`{interface, module}`. `module.library` and `module.develop` switch the module in either style and reply
+`{module}`. `ui.inspect` → `ui.classic` is `{interface, module, libraryView, libraryRight}` (`interface` is `null`
+until a style is chosen, which draws as Modern; the desktop and web apps choose Classic the first time they start,
+while `lightcraft-cli snapshot` and the headless MCP server start Modern), and
+`ui.set {"classic": {"interface": "classic"}}` sets the style too. In Classic Develop, `view.classicPanel {panel, open?}` folds a panel (`histogram`, `basic`, `toneCurve`, `hsl`,
+`colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration` on the right; `navigator`,
+`presets`, `snapshots`, `history` on the left) and replies `{panel, open}`; the
+headers are the widgets `classicPanel:<id>`, their switches `classicSwitch:<id>`, and the sliders keep their ids
+(`slider:light.exposure`). The Classic Print module is `module.print`; `print.set {shape?, longEdge?, width?, height?,
+background?, size?, x?, y?, format?, quality?, dir?}` changes its page and replies the layout (`ui.classic.print`),
+`print.export {dir?, path?, ids?, background?}` writes it for the selected photos, and the page and the photo on it
+are the widgets `printPage` and `printPhoto` (drag the photo with `ui.dragWidget`). The module follows the view and the panel beside
+it, so scripts written for the Modern style keep working: see [classic-interface.md](classic-interface.md).
+
 Mask brushing uses the UI command `tool.brush` through `engine.execute`. With `{}` it activates
 painting on the current mask. `{"new": true}` creates a separate brush mask; `{"op": "add"}` or
 `{"op": "subtract"}` appends a brush component to the selected mask. Creating either starts in

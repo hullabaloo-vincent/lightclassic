@@ -16,3 +16,7 @@ for f in docs/images/*.png; do sips -s format jpeg -s formatOptions 82 "$f" --ou
 ```
 
 `run.py` sends each JSON line (`{"method":…,"params":…}` or `{"sleep": seconds}`) to `127.0.0.1:7980`.
+
+The app starts in the Classic interface style ([classic-interface.md](../classic-interface.md)), so that is what
+these captures show. For the Modern layout the README's images were made in, put
+`{"method": "engine.execute", "params": {"command": "view.interface", "params": {"style": "modern"}}}` first.

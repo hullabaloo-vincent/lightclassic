@@ -324,6 +324,15 @@ impl Renderer {
         old.as_ptr() == Arc::as_ptr(photo) && *size == bucket && *quick && self.pending.contains_key(&Slot::ThumbQuick(photo.id))
     }
 
+    /// `size` and `priority` raised to what this photo's thumbnail is already asked for at. Two places showing the
+    /// same photo at once (a grid and the Classic filmstrip under it) then ask for the same thing, where each asking
+    /// for its own would restart the other's render, or reshuffle it in the queue, on every frame.
+    pub(crate) fn thumb_ask_merged(&self, id: PhotoId, size: usize, priority: u32) -> (usize, u32) {
+        let asked = self.thumb_inputs.get(&id).map_or(0, |(_, bucket, _, _)| *bucket);
+        let queued = self.pending.get(&Slot::Thumb(id)).map_or(0, |(_, priority)| *priority);
+        (size.max(asked), priority.max(queued))
+    }
+
     /// Remember that the camera's embedded preview is this photo's final thumbnail, so the grid's
     /// per-frame requests stop at it (the quick render's key, which [`Self::thumb_quick_is_final`]
     /// compares against).

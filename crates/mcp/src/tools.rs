@@ -76,6 +76,12 @@ fn ids_schema(what: &str) -> Value {
 
 /// The hand-written helper tools. UI tools are included only when a desktop app is attached.
 pub fn helper_tools(has_ui: bool) -> Vec<Value> {
+    // (its own value: the export tool's schema below is as deep as `json!` goes in one literal)
+    let canvas = json!({
+        "type": "object",
+        "description": "Place the photo on a canvas, as a print layout does: the file is the canvas (8 bits per channel) and the size arguments are not used. {width, height: the canvas in px (16..20000 each, at most 120 megapixels), size?: the photo's share of the canvas (0.02..1, default 0.85: it is fitted inside that fraction), x?, y?: where its centre sits across and down (0..1, default 0.5), background?: [r, g, b] in sRGB (default white)}",
+        "required": ["width", "height"]
+    });
     let photo_id = json!({"type": "integer", "description": "Photo id (default: the active photo). Makes that photo active first."});
     let mut v = vec![
         tool(
@@ -263,6 +269,7 @@ pub fn helper_tools(has_ui: bool) -> Vec<Value> {
                 "bitDepth": {"type": "integer", "enum": [8, 10, 16, 32], "description": "Bits per channel: PNG 8|16 (default 8), TIFF 8|16|32 (default 16; 32 = linear float with a linear profile), PSD 8|16 (default 16), AVIF 8|10, JPEG XL 8|16; JPEG/WebP are 8-bit"},
                 "hdr": {"type": "boolean", "description": "HDR output for photos edited in HDR (develop.hdr): JPEG as an ISO 21496-1 gain map JPEG, AVIF as 10-bit, PNG and JPEG XL as 16-bit Rec. 2020 PQ, 32-bit TIFF with highlights above 1; other formats and SDR edits export as usual"},
                 "hdrTransfer": {"type": "string", "enum": ["pq", "hlg"], "description": "Transfer curve of HDR AVIF output (default pq): pq = SMPTE ST 2084, hlg = ITU-R BT.2100 hybrid log-gamma"},
+                "canvas": canvas,
                 "addToPhotos": {"type": "boolean", "description": "macOS: after writing the files, add them to Apple Photos (Apple Events to Photos' import; the first time, macOS asks the user to allow LightCraft to control Photos). The outcome is `applePhotos` in the result, the import job: {job, running, requested, album, imported?, ids?, warning?, error?}; headless waits for Photos, the desktop app returns the running job (outcome: command export.photosImports {job}). The files are written either way. An error before exporting on other platforms, or while another import is reserved or running"},
                 "photosAlbum": {"type": "string", "description": "With addToPhotos: the album to add them to, a top-level Photos album of exactly this name, made when missing (several of that name: nothing is added); default none"},
                 "watermark": {"description": "Text, or {text, vertical (boolean; defaults to false: upright columns right to left), size (text height as a fraction of the short edge, 0.005..0.5; default 0.035), opacity (0..1; default 0.7), anchor (topLeft|top|topRight|left|center|right|bottomLeft|bottom|bottomRight), insetX (margin from the left or right edge as a fraction of the short edge, 0..0.4; default 0.025), insetY (margin from the top or bottom edge, same units), inset (sets both), rotation (degrees clockwise: 0|90|180|270; default 0; the watermark is sized before it is turned), color [r,g,b] (sRGB 0..255), shadow (boolean), image (path of a graphic drawn instead of the text), imageWidth (fraction of the photo's width, 0.01..1; default 0.2)}. Unknown keys and out-of-range sizes are errors"}
@@ -745,6 +752,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> ToolResult {
                         "bitDepth",
                         "hdr",
                         "hdrTransfer",
+                        "canvas",
                         "preset",
                         "background",
                         "resize",

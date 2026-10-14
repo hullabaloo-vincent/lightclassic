@@ -286,6 +286,8 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     });
     app.caches.grid_stats.cells_visited += visited;
+    // The Classic filmstrip runs under the grid and shows photos the grid has scrolled away from: theirs are kept too.
+    visible_ids.extend(super::classic::filmstrip_photos(app));
     app.renderer.evict_thumbs(&visible_ids, 600);
     let _ = (Color32::BLACK, StrokeKind::Inside, Stroke::NONE);
 }
@@ -497,6 +499,9 @@ pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority
     if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) && app.renderer.thumb(id).is_some() {
         return;
     }
+    // The Classic style shows a grid and the filmstrip together, and a photo has one thumbnail: the larger size and
+    // the higher priority of the two serve both.
+    let (size, priority) = if crate::classic::active(app) { app.renderer.thumb_ask_merged(id, size, priority) } else { (size, priority) };
     let bucket = lightcraft_engine::media::thumb_bucket(size);
     if let Some(photo) = app.session.catalog.photo(id)
         && app.renderer.thumb_current(photo, bucket, priority)
