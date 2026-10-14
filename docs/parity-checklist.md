@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (LRC-DEV-PANELS: HSL / Color with every colour, B&W panel; LR-VIEW-CLIPPING: Show Clipping paints the clipped pixels; LR-PREF-INTERFACE: the apps start in the Classic interface style; LR-PROF-CAMERACOLOR: Canon camera JPEGs read as Adobe RGB when the maker note says so, dark coloured frames learn their colour; earlier: LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** patch (LRC-PRINT-JOB: export onto a canvas; LRC-DEV-PANELS: HSL / Color with every colour, B&W panel; LR-VIEW-CLIPPING: Show Clipping paints the clipped pixels; LR-PREF-INTERFACE: the apps start in the Classic interface style; LR-PROF-CAMERACOLOR: Canon camera JPEGs read as Adobe RGB when the maker note says so, dark coloured frames learn their colour; earlier: LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -756,7 +756,7 @@ From `08-lightroom-classic-extras.md` (Classic-only features) and part 2 of `06-
 | LRC-PRINT-GUIDES | Print guides | P2 | ⬜ | | |
 | LRC-PRINT-CELLS | Picture-package cells | P2 | ⬜ | | |
 | LRC-PRINT-PAGE | Print page options | P2 | 🟡 | `cmd:export.contactSheet`, `crates/engine/src/contact_sheet.rs` | optional filename captions; no page backgrounds/identity plates |
-| LRC-PRINT-JOB | Print job & colour management | P2 | 🟡 | `cmd:export.contactSheet`, `cmd:app.contactSheet`, `crates/ui-egui/src/export_task.rs` | PDF export at fixed 150 dpi in sRGB, current edits, background progress/cancel and original protection; no native printer integration, ICC soft proof/print profiles or selectable resolution |
+| LRC-PRINT-JOB | Print job & colour management | P2 | 🟡 | `cmd:export.contactSheet`, `cmd:app.contactSheet`, `cmd:app.export` (`canvas`), `crates/engine/src/export.rs` (`Canvas`), `crates/ui-egui/src/export_task.rs` | PDF export at fixed 150 dpi in sRGB, current edits, background progress/cancel and original protection; no native printer integration, ICC soft proof/print profiles or selectable resolution; print to an image file: `app.export` with `canvas {width, height, background?, size?, x?, y?}` writes the canvas with the photo placed on it (JPEG, PNG, TIFF, WebP, AVIF, JPEG XL, PSD; 8 bits per channel) |
 | LRC-PRINT-TEMPLATES | Print templates | P2 | ⬜ | | |
 | LRC-WEB-LAYOUT | Web gallery layouts | OOS | 🚫 | | |
 | LRC-WEB-SITEINFO | Web gallery site info | OOS | 🚫 | | |
@@ -791,6 +791,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | LRC-PRINT-JOB: `app.export` takes a `canvas` (size, background, the photo's share and position) and writes the canvas with the photo on it (PRINT.1); status unchanged (🟡) |
 | 2026-10-13 | minor | LRC-DEV-PANELS: the Classic HSL / Color panel shows every colour per attribute and becomes B&W for a black-and-white photo; the Classic top bar has no cloud or chat icon (CLASSIC.6); status unchanged (🟡) |
 | 2026-10-13 | patch | LR-VIEW-CLIPPING: Show Clipping paints blown and crushed pixels in the loupe (it drew a frame around the photo, which the ✅ did not say); status unchanged (✅) |
 | 2026-10-13 | patch | LR-PROF-CAMERACOLOR: a Canon CR2 shot in Adobe RGB has its camera JPEG read as Adobe RGB (maker note `0x00b4`), dark coloured frames count as coloured, a partial look survives a lamp; 20 EOS Rebel T5 files mean ΔE vs the camera JPEG 4.45 → 3.01; status unchanged (🟡) |
