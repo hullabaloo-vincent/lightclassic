@@ -34,6 +34,8 @@ const MAX_FILES: usize = 2000;
 pub const MAX_WARP_ERROR: f64 = 0.001;
 /// Largest relative error accepted when converting vignetting to the DNG polynomial.
 pub const MAX_VIGNETTE_ERROR: f64 = 0.01;
+/// How far the corrected image may be enlarged or reduced to fill the frame ([`fill_zoom`]).
+const ZOOM_RANGE: (f64, f64) = (0.8, 1.25);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
@@ -414,35 +416,20 @@ impl Profile {
 
     /// The correction for `shot`, as the DNG opcode polynomials the pipeline applies, centred on the image.
     /// Distortion and TCA are combined per plane (R, G, B); a model the polynomial can't follow closely
-    /// ([`MAX_WARP_ERROR`], [`MAX_VIGNETTE_ERROR`]) or that would fold the image is left out.
+    /// ([`MAX_WARP_ERROR`], [`MAX_VIGNETTE_ERROR`]) or that would fold the image is left out. The corrected image
+    /// is scaled to just fill the frame ([`Profile::warp`]).
     pub fn correction(&self, shot: &Shot) -> Option<EmbeddedLens> {
         let (w, h) = (shot.width, shot.height);
         if !(w >= 2.0 && h >= 2.0 && w.is_finite() && h.is_finite() && shot.focal.is_finite() && shot.focal > 0.0) {
             return None;
         }
         let cam = shot.crop_factor.filter(|c| c.is_finite() && *c > 0.0).unwrap_or(self.crop_factor);
-        // DNG radius (1 = image half diagonal) → lensfun radii
+        // DNG radius (1 = image half diagonal) → lensfun radius
         let to_vig = self.crop_factor / cam;
-        let to_dist = to_vig * (1.0 + self.aspect_ratio * self.aspect_ratio).sqrt();
         let center = Point::new(0.5, 0.5);
         let radius = w.hypot(h) / 2.0 / w.max(h);
         let f = shot.focal;
-        let mut lens = EmbeddedLens::default();
-        let has_dist = self.rectilinear && !self.distortion.is_empty();
-        if has_dist || !self.tca.is_empty() {
-            let plane = |ch: usize| -> Option<[f64; 6]> {
-                let ratio = |r: f64| {
-                    let rl = r * to_dist;
-                    let d = self.distortion_ratio(f, rl);
-                    d * self.tca_ratio(f, ch, rl * d)
-                };
-                let (k, err) = model::fit_even4(ratio)?;
-                (err <= MAX_WARP_ERROR).then_some([k[0], k[1], k[2], k[3], 0.0, 0.0])
-            };
-            if let (Some(r), Some(g), Some(b)) = (plane(0), plane(1), plane(2)) {
-                lens.warp = Some(EmbeddedWarp { planes: [r, g, b], center, radius });
-            }
-        }
+        let mut lens = EmbeddedLens { warp: self.warp(shot).map(|(warp, _)| warp), ..Default::default() };
         if !self.vignetting.is_empty() {
             let att = |r: f64| self.vignetting_attenuation(f, shot.aperture, shot.distance, r * to_vig).unwrap_or(1.0);
             if let Some((k, err)) = model::fit_gain5(|r| 1.0 / att(r).max(0.05))
@@ -453,6 +440,84 @@ impl Profile {
         }
         (lens.warp.is_some() || lens.vignette.is_some()).then_some(lens)
     }
+
+    /// The distortion and TCA warp for `shot`, and how much it enlarges the corrected image (its zoom).
+    ///
+    /// The database's models keep the scale at their own reference radius (half the shorter side of the calibration
+    /// frame), not at the edge of the frame the photo was taken on. Applied as they are, a correction leaves blank
+    /// canvas along the edges it pulls inward, or crops pixels the lens recorded: on an 18 MP APS-C body a
+    /// full-frame zoom's 28 mm barrel correction leaves a border about 20 px wide. So the corrected image is
+    /// zoomed about its centre until its edges just reach the recorded frame ([`fill_zoom`]), as renderers that
+    /// use these profiles do.
+    fn warp(&self, shot: &Shot) -> Option<(EmbeddedWarp, f64)> {
+        let (w, h) = (shot.width, shot.height);
+        if !(w >= 2.0 && h >= 2.0 && w.is_finite() && h.is_finite() && shot.focal.is_finite() && shot.focal > 0.0) {
+            return None;
+        }
+        let has_dist = self.rectilinear && !self.distortion.is_empty();
+        if !has_dist && self.tca.is_empty() {
+            return None;
+        }
+        let cam = shot.crop_factor.filter(|c| c.is_finite() && *c > 0.0).unwrap_or(self.crop_factor);
+        // DNG radius (1 = image half diagonal) → lensfun radius
+        let to_dist = self.crop_factor / cam * (1.0 + self.aspect_ratio * self.aspect_ratio).sqrt();
+        let f = shot.focal;
+        // source radius / corrected radius of plane `ch` at DNG radius `r`
+        let ratio = |ch: usize, r: f64| {
+            let rl = r * to_dist;
+            let d = self.distortion_ratio(f, rl);
+            d * self.tca_ratio(f, ch, rl * d)
+        };
+        // the nearest point of the frame's edge, in DNG radii (its corners are at 1)
+        let nearest = w.min(h) / w.hypot(h);
+        // framing follows the green plane, as the pipeline's does
+        let zoom = fill_zoom(|r| ratio(1, r), nearest);
+        let plane = |ch: usize| -> Option<[f64; 4]> {
+            let (k, err) = model::fit_even4(|r| ratio(ch, r / zoom) / zoom)?;
+            (err <= MAX_WARP_ERROR).then_some(k)
+        };
+        let (r, g, b) = (plane(0)?, plane(1)?, plane(2)?);
+        // the fit is close, not exact: what it still leaves uncovered is closed on the fitted polynomial itself
+        let rest = fill_zoom(|x| even4(&g, x), nearest).max(1.0);
+        let scaled = |k: [f64; 4]| [k[0] / rest, k[1] / rest.powi(3), k[2] / rest.powi(5), k[3] / rest.powi(7), 0.0, 0.0];
+        let warp = EmbeddedWarp { planes: [scaled(r), scaled(g), scaled(b)], center: Point::new(0.5, 0.5), radius: w.hypot(h) / 2.0 / w.max(h) };
+        Some((warp, zoom * rest))
+    }
+}
+
+/// `k0 + k1·r² + k2·r⁴ + k3·r⁶`.
+fn even4(k: &[f64; 4], r: f64) -> f64 {
+    let r2 = r * r;
+    k[0] + r2 * (k[1] + r2 * (k[2] + r2 * k[3]))
+}
+
+/// The zoom that makes a radial correction just fill its frame. `ratio(r)` is source radius / corrected radius at
+/// corrected radius `r` (1 = the frame's corner); the frame's edge spans the radii `nearest..=1`. Zoomed by `z`,
+/// the edge point at radius `r` shows the source at `r·ratio(r / z) / z`, which is on the frame while
+/// `ratio(r / z) ≤ z`: the zoom is the smallest `z` where that holds along the whole edge, so one edge point
+/// touches the source's edge and none goes past it. Below 1 when the correction would otherwise crop recorded
+/// pixels. Kept within [`ZOOM_RANGE`]; 1 for a ratio that isn't finite.
+fn fill_zoom(ratio: impl Fn(f64) -> f64, nearest: f64) -> f64 {
+    const EDGE_SAMPLES: usize = 64;
+    let nearest = if nearest.is_finite() { nearest.clamp(0.0, 1.0) } else { 0.0 };
+    let mut zoom = 1.0f64;
+    // ratio varies slowly with r, so `z = max ratio(r / z)` converges in a few rounds
+    for _ in 0..32 {
+        let mut need = f64::MIN;
+        for i in 0..=EDGE_SAMPLES {
+            let at = ratio((nearest + (1.0 - nearest) * i as f64 / EDGE_SAMPLES as f64) / zoom);
+            if !at.is_finite() {
+                return 1.0;
+            }
+            need = need.max(at);
+        }
+        let next = need.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1);
+        if (next - zoom).abs() < 1e-12 {
+            return next;
+        }
+        zoom = next;
+    }
+    zoom
 }
 
 #[cfg(test)]

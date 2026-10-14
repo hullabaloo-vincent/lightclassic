@@ -120,7 +120,9 @@ fn distortion_matches_the_model_within_half_a_pixel_on_a_grid() {
     let lens = &db.lenses[0];
     let (w, h) = (6000.0, 4000.0);
     for focal in [24.0, 40.0, 70.0] {
-        let wp = lens.correction(&shot(focal)).unwrap().warp.unwrap();
+        // the corrected image is zoomed by `z` to fill the frame: output radius r shows the scene at r / z
+        let (wp, z) = lens.warp(&shot(focal)).unwrap();
+        assert_eq!(lens.correction(&shot(focal)).unwrap().warp, Some(wp));
         // lensfun normalisation: r = 1 at half the shorter side (full frame, 3:2)
         let n = h / 2.0;
         let mut worst: f64 = 0.0;
@@ -128,7 +130,7 @@ fn distortion_matches_the_model_within_half_a_pixel_on_a_grid() {
             for gx in 0..=30 {
                 let (x, y) = (gx as f64 * w / 30.0, gy as f64 * h / 20.0);
                 let (sx, sy) = dng_source(&wp, 1, x, y, w, h);
-                let (dx, dy) = ((x - w / 2.0) / n, (y - h / 2.0) / n);
+                let (dx, dy) = ((x - w / 2.0) / n / z, (y - h / 2.0) / n / z);
                 let r = dx.hypot(dy);
                 let k = lens.distortion_ratio(focal, r);
                 let (ex, ey) = (w / 2.0 + dx * k * n, h / 2.0 + dy * k * n);
@@ -148,9 +150,11 @@ fn straight_lines_stay_straight_after_correction() {
     let db = db();
     let lens = &db.lenses[0];
     let (w, h) = (6000.0, 4000.0);
-    let wp = lens.correction(&shot(24.0)).unwrap().warp.unwrap();
+    let (wp, z) = lens.warp(&shot(24.0)).unwrap();
     let n = h / 2.0;
     let y_line = 300.0; // a horizontal line near the top edge
+    // the scene line shown there (the corrected image is zoomed by `z` about its centre)
+    let scene_y = h / 2.0 + (y_line - h / 2.0) / z;
     let mut dev: f64 = 0.0;
     for i in 0..=60 {
         let x = i as f64 * w / 60.0;
@@ -169,9 +173,82 @@ fn straight_lines_stay_straight_after_correction() {
         }
         let s = if rd > 0.0 { lo / rd } else { 1.0 };
         let uy = h / 2.0 + dy * s * n;
-        dev = dev.max((uy - y_line).abs());
+        dev = dev.max((uy - scene_y).abs());
     }
     assert!(dev < 0.5, "line bent by {dev} px");
+}
+
+/// How far the green plane's source position of each edge point lies from the frame's centre, relative to the
+/// edge point itself: (largest, smallest). Above 1 the edge shows blank canvas; all below 1 crops recorded pixels.
+fn edge_reach(wp: &EmbeddedWarp, w: f64, h: f64) -> (f64, f64) {
+    let (mut most, mut least) = (f64::MIN, f64::MAX);
+    for i in 0..=200 {
+        let t = i as f64 / 200.0;
+        for (x, y) in [(t * w, 0.0), (t * w, h), (0.0, t * h), (w, t * h)] {
+            let (sx, sy) = dng_source(wp, 1, x, y, w, h);
+            let reach = (sx - w / 2.0).hypot(sy - h / 2.0) / (x - w / 2.0).hypot(y - h / 2.0);
+            (most, least) = (most.max(reach), least.min(reach));
+        }
+    }
+    (most, least)
+}
+
+/// A corrected photo shows no blank canvas and loses no more of the recording than it must: the image is zoomed
+/// until an edge point reaches the recorded frame's edge. Before, a full-frame zoom's wide end on a crop body (made-up
+/// coefficients of the usual size) left a border along every side: its model keeps the scale at the full frame's
+/// short side, far outside the crop.
+#[test]
+fn the_corrected_image_just_fills_the_frame() {
+    let db = LensDb::parse(
+        r#"<lensdatabase>
+          <lens><maker>Testcam</maker><model>Testcam 28-135mm f/3.5-5.6</model><mount>T</mount><cropfactor>1</cropfactor>
+            <calibration>
+              <distortion model="ptlens" focal="28" a="0.015" b="-0.042" c="0" />
+              <distortion model="ptlens" focal="135" a="0" b="0.0105" c="0" />
+              <tca model="linear" focal="28" kr="1.0004" kb="0.9997" />
+            </calibration>
+          </lens>
+          <lens><maker>Testcam</maker><model>Testcam 20mm f/2</model><mount>T</mount><cropfactor>1</cropfactor>
+            <calibration><distortion model="poly3" focal="20" k1="-0.03" /></calibration>
+          </lens>
+          <lens><maker>Testcam</maker><model>Testcam 200mm f/4</model><mount>T</mount><cropfactor>1</cropfactor>
+            <calibration><distortion model="poly3" focal="200" k1="0.02" /></calibration>
+          </lens></lensdatabase>"#,
+    )
+    .unwrap();
+    let (w, h) = (5184.0, 3456.0);
+    let crop_body = |focal: f64| Shot { focal, aperture: None, distance: None, crop_factor: Some(1.6), width: w, height: h };
+    let full_frame = Shot { crop_factor: Some(1.0), ..crop_body(20.0) };
+    // half a pixel at the corner, as a share of the half diagonal
+    let tol = 0.5 / (w.hypot(h) / 2.0);
+    let tele = Shot { crop_factor: Some(2.0), ..crop_body(200.0) };
+    for (lens, shot) in [(0, crop_body(28.0)), (0, crop_body(60.0)), (0, crop_body(135.0)), (1, full_frame), (1, crop_body(20.0)), (2, tele)] {
+        let (wp, zoom) = db.lenses[lens].warp(&shot).unwrap();
+        let (most, least) = edge_reach(&wp, w, h);
+        assert!(most <= 1.0 + 1e-9, "lens {lens} at {} mm: blank canvas at the edge ({most})", shot.focal);
+        assert!(most > 1.0 - tol, "lens {lens} at {} mm: cropped more than needed ({most})", shot.focal);
+        assert!(least > 0.9 && (0.9..1.1).contains(&zoom), "{least} {zoom}");
+    }
+    // the wide end on the crop body is the case that showed a border: the model alone reaches past the frame there
+    let wide = &db.lenses[0];
+    let short_edge = 1.0 / 1.6; // lensfun radius of the crop's short side
+    assert!(wide.distortion_ratio(28.0, short_edge) > 1.01);
+    assert!(wide.warp(&crop_body(28.0)).unwrap().1 > 1.01, "zoomed in to cover it");
+    // a barrel correction on the frame it was calibrated for already touched the short sides: nothing to zoom
+    assert!((db.lenses[1].warp(&full_frame).unwrap().1 - 1.0).abs() < 1e-3);
+    // a pincushion correction on a crop of its frame is zoomed out instead of cropping recorded pixels
+    assert!(db.lenses[2].warp(&tele).unwrap().1 < 0.999);
+}
+
+#[test]
+fn fill_zoom_is_bounded_and_ignores_hostile_ratios() {
+    assert_eq!(fill_zoom(|_| 1.0, 0.55), 1.0);
+    assert_eq!(fill_zoom(|_| f64::NAN, 0.55), 1.0);
+    assert_eq!(fill_zoom(|_| f64::INFINITY, 0.55), 1.0);
+    assert_eq!(fill_zoom(|_| 9.0, 0.55), ZOOM_RANGE.1);
+    assert_eq!(fill_zoom(|_| 0.0, f64::NAN), ZOOM_RANGE.0);
+    let z = fill_zoom(|r| 1.02 - 0.03 * r * r, 0.55);
+    assert!((1.02 - 0.03 * (0.55 / z) * (0.55 / z) - z).abs() < 1e-9, "the nearest edge point decides: {z}");
 }
 
 #[test]
