@@ -155,3 +155,8 @@ Lightroom Classic's interface, not the cloud Lightroom layout upstream follows. 
   What the Edit panel draws inline is drawn again in `panels/edit/classic.rs`: repeat fixes there.
 - Task ids for this work are `CLASSIC.n`. `plan/` (referenced above) does not exist in this fork: start from
   `docs/classic-interface.md` and `docs/gaps.md`.
+- The owner's app is built with `scripts/Build LightCraft (macOS).command` (double-clickable: `dist/LightCraft.app`
+  for this Mac, ad-hoc signed, optionally installed to Applications). It assembles the bundle as
+  `packaging/macos/package.sh` does, from the same templates: when upstream changes the bundle's layout, signing or
+  features there, repeat it in the script. Run without a terminal it only builds; never install or open the app
+  for the owner unasked.
