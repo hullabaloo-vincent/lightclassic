@@ -736,6 +736,8 @@ fn main() -> eframe::Result {
         logging::record_panics(logger);
     }
     alloc_release::install();
+    // lens profiles the user downloaded (Photo ▸ Download Lens Profiles) are read from the settings folder
+    lightcraft_engine::lens_profiles::use_default_dir();
     let mut control_port = control_port_from("LIGHTCRAFT_CONTROL_PORT", std::env::var("LIGHTCRAFT_CONTROL_PORT").ok().filter(|v| !v.is_empty()));
     let mut files = Vec::new();
     let mut seed_demo = true;

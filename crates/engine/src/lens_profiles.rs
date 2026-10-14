@@ -1,38 +1,323 @@
-//! Lens profile corrections from a lens database the user supplies ([`lightcraft_lensdb`]).
+//! Lens profile corrections from a lens database ([`lightcraft_lensdb`]).
 //!
 //! When a raw carries no lens correction of its own (DNG opcodes, or a camera correction a raw reader converts,
-//! [`crate::files::embedded_lens`]), the lens named in its EXIF is looked up in a lensfun-format database: the
-//! directory in `LIGHTCRAFT_LENSFUN_DIR` (e.g. lensfun's `data/db`, CC-BY-SA, which is never bundled with the app).
-//! The profile is converted to the same [`lightcraft_develop::EmbeddedLens`] form, so "Enable Profile Corrections", its
-//! amount sliders, the GPU path and DNG export treat both alike. Without the variable nothing changes.
+//! [`crate::files::embedded_lens`]), the lens named in its EXIF is looked up in a lensfun-format database. The
+//! profile is converted to the same [`lightcraft_develop::EmbeddedLens`] form, so "Enable Profile Corrections", its
+//! amount sliders, the GPU path and DNG export treat both alike.
+//!
+//! The database (the lensfun project's `data/db`, CC BY-SA 3.0) is never bundled with the app. It is read from the
+//! directory in `LIGHTCRAFT_LENSFUN_DIR`, else from the folder the host names with [`use_dir`]: the apps name
+//! `<settings>/lensfun` ([`use_default_dir`]), which is also where `optics.downloadLensProfiles`
+//! ([`crate::cmd::lens_profiles`]) puts the files it fetches. A library that names no folder reads the variable
+//! only, so tests stay hermetic. Without a database nothing changes.
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use lightcraft_develop::EmbeddedLens;
 use lightcraft_lensdb::{LensDb, Shot};
 
 /// The environment variable naming the lens database directory.
 pub const ENV: &str = "LIGHTCRAFT_LENSFUN_DIR";
+/// The credit the lensfun database asks for, shown wherever its download is offered.
+pub const ATTRIBUTION: &str = "Lens profiles: the lensfun database (lensfun.github.io), CC BY-SA 3.0";
 
-/// The configured database, read once per process; `None` when none is configured or it holds no lenses.
-pub fn database() -> Option<&'static LensDb> {
-    static DB: OnceLock<Option<LensDb>> = OnceLock::new();
-    DB.get_or_init(|| {
-        let dir = PathBuf::from(std::env::var_os(ENV)?);
-        match LensDb::load_dir(&dir) {
-            Ok((db, errors)) => {
-                for (file, e) in errors {
-                    log::warn!("lens database: skipped {file}: {e}");
-                }
-                (!db.lenses.is_empty()).then_some(db)
+/// How a lens-profile download ended.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DownloadOutcome {
+    /// Done: this many lens profiles in this many files.
+    Done {
+        lenses: usize,
+        files: usize,
+    },
+    /// Failed, in words the user can act on.
+    Failed(String),
+    Cancelled,
+}
+
+struct Store {
+    /// The folder the host named ([`use_dir`]); read when [`ENV`] is unset, and where downloads go.
+    dir: Option<PathBuf>,
+    /// The database as last read (`None` inside: none configured, or it holds no lenses), until [`reload`].
+    loaded: Option<Option<Arc<LensDb>>>,
+    /// Counts every change of what [`database`] may return, so callers can drop what they derived from it.
+    generation: u64,
+    /// Where downloads come from instead of the lensfun project's own address ([`use_source`]).
+    source: Option<String>,
+}
+
+static STORE: Mutex<Store> = Mutex::new(Store { dir: None, loaded: None, generation: 0, source: None });
+
+/// Lens data a background lookup found for photos of the library with generation `library`.
+pub(crate) struct Found {
+    pub library: u64,
+    /// (photo, the file it was read from, its lens data)
+    pub lenses: Vec<(lightcraft_catalog::PhotoId, String, EmbeddedLens)>,
+}
+
+#[derive(Default)]
+struct JobState {
+    downloading: bool,
+    last: Option<DownloadOutcome>,
+    /// The last outcome, until the UI has shown it ([`Jobs::take_outcome`]).
+    unreported: Option<DownloadOutcome>,
+    /// A background lookup of the library's photos is running.
+    scanning: bool,
+    /// What the last lookup found, until the session takes it ([`crate::Session::finish_lens_scan`]).
+    found: Option<Found>,
+}
+
+/// A session's lens-profile work in the background ([`crate::cmd::lens_profiles`]): the database download and the
+/// lookup of the library's photos. The database itself is the process's; these belong to the session that started
+/// them.
+#[derive(Clone, Default)]
+pub struct Jobs(Arc<Mutex<JobState>>);
+
+impl Jobs {
+    fn state(&self) -> MutexGuard<'_, JobState> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a download is running.
+    pub fn downloading(&self) -> bool {
+        self.state().downloading
+    }
+
+    /// How the last download ended (kept until the next one ends).
+    pub fn last_outcome(&self) -> Option<DownloadOutcome> {
+        self.state().last.clone()
+    }
+
+    /// A download that ended since the last call (the UI shows it once).
+    pub fn take_outcome(&self) -> Option<DownloadOutcome> {
+        self.state().unreported.take()
+    }
+
+    /// Whether a background lookup of the library's photos is running.
+    pub fn scanning(&self) -> bool {
+        self.state().scanning
+    }
+
+    /// Mark a download as running; `false` when one already is.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn begin_download(&self) -> bool {
+        !std::mem::replace(&mut self.state().downloading, true)
+    }
+
+    /// Record how the running download ended (`None`: it could not start).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn end_download(&self, outcome: Option<DownloadOutcome>) {
+        let mut st = self.state();
+        st.downloading = false;
+        if let Some(outcome) = outcome {
+            st.last = Some(outcome.clone());
+            st.unreported = Some(outcome);
+        }
+    }
+
+    /// Mark a lookup as running; `false` when one already is.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn begin_scan(&self) -> bool {
+        !std::mem::replace(&mut self.state().scanning, true)
+    }
+
+    /// The running lookup ended with `found` (`None`: it could not start).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn end_scan(&self, found: Option<Found>) {
+        let mut st = self.state();
+        st.scanning = false;
+        if found.is_some() {
+            st.found = found;
+        }
+    }
+}
+
+fn store() -> MutexGuard<'static, Store> {
+    STORE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The directory in [`ENV`], when it names one.
+pub fn env_dir() -> Option<PathBuf> {
+    std::env::var_os(ENV).filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// `<settings>/lensfun`: where the apps keep the lens database.
+pub fn default_dir() -> Option<PathBuf> {
+    crate::config::config_dir().map(|d| d.join("lensfun"))
+}
+
+/// Read lens profiles from `dir` when [`ENV`] is unset, and download them there. `None`: the variable only.
+pub fn use_dir(dir: Option<PathBuf>) {
+    let mut st = store();
+    if st.dir != dir {
+        st.dir = dir;
+        st.loaded = None;
+        st.generation = st.generation.wrapping_add(1);
+    }
+}
+
+/// [`use_dir`] with [`default_dir`]: what the desktop app and the CLI call at start.
+pub fn use_default_dir() {
+    use_dir(default_dir());
+}
+
+/// Download the database from `base` (a mirror of lensfun's `data/db`, or a test server) instead of the project's
+/// own address; `None`: the project's.
+pub fn use_source(base: Option<String>) {
+    store().source = base;
+}
+
+/// The address set with [`use_source`].
+pub fn source() -> Option<String> {
+    store().source.clone()
+}
+
+/// Whether the folder profiles are read from exists (a cheap check that reads no database).
+pub fn folder_exists() -> bool {
+    dir().is_some_and(|d| d.is_dir())
+}
+
+/// The folder the host named ([`use_dir`]): where a download goes.
+pub fn host_dir() -> Option<PathBuf> {
+    store().dir.clone()
+}
+
+/// The directory profiles are read from: [`ENV`]'s, else the host's.
+pub fn dir() -> Option<PathBuf> {
+    env_dir().or_else(host_dir)
+}
+
+/// Read the database again on its next use (its files changed).
+pub fn reload() {
+    let mut st = store();
+    st.loaded = None;
+    st.generation = st.generation.wrapping_add(1);
+}
+
+/// A number that changes whenever [`database`] may return something else.
+pub fn generation() -> u64 {
+    store().generation
+}
+
+/// The configured database, read on first use and kept until [`reload`]; `None` when none is configured or it
+/// holds no lenses.
+pub fn database() -> Option<Arc<LensDb>> {
+    let env = env_dir();
+    let mut st = store();
+    if let Some(db) = &st.loaded {
+        return db.clone();
+    }
+    let db = env.or_else(|| st.dir.clone()).and_then(|dir| match LensDb::load_dir(&dir) {
+        Ok((db, errors)) => {
+            for (file, e) in errors {
+                log::warn!("lens database: skipped {file}: {e}");
             }
-            Err(e) => {
-                log::warn!("{e}");
-                None
+            (!db.lenses.is_empty()).then(|| Arc::new(db))
+        }
+        // (a settings folder without a `lensfun` folder is the usual case: nothing was downloaded)
+        Err(e) => {
+            log::debug!("{e}");
+            None
+        }
+    });
+    st.loaded = Some(db.clone());
+    db
+}
+
+/// A private lens folder for a while: the host folder is `dir` until the guard is dropped, and other holders wait.
+/// For tests and tools, which share this process-wide setting.
+pub fn scoped_dir(dir: Option<PathBuf>) -> ScopedDir {
+    static TURN: Mutex<()> = Mutex::new(());
+    let turn = TURN.lock().unwrap_or_else(PoisonError::into_inner);
+    let before = host_dir();
+    use_dir(dir);
+    ScopedDir { before, _turn: turn }
+}
+
+/// See [`scoped_dir`].
+pub struct ScopedDir {
+    before: Option<PathBuf>,
+    _turn: MutexGuard<'static, ()>,
+}
+
+impl Drop for ScopedDir {
+    fn drop(&mut self) {
+        use_dir(self.before.take());
+        store().source = None;
+    }
+}
+
+/// What a photo's lens data corrects, for the Lens Corrections panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Corrects {
+    pub distortion: bool,
+    /// Lateral chromatic aberration: the colour planes are warped differently.
+    pub fringing: bool,
+    pub vignetting: bool,
+}
+
+/// What `lens` corrects.
+pub fn corrects(lens: &EmbeddedLens) -> Corrects {
+    let planes_differ = lens.warp.is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[2] != w.planes[1])
+        || lens.stages.iter().flatten().any(|s| s.planes[0] != s.planes[1] || s.planes[2] != s.planes[1]);
+    Corrects { distortion: lens.warp.is_some() || lens.has_stages(), fringing: planes_differ, vignetting: lens.vignette.is_some() }
+}
+
+impl crate::Session {
+    /// Record lens data found for photos (`found`: photo, the file it was read from, the data), each as
+    /// [`Self::learn_lens`] does: only for a raw that still shows that file and has no lens data, and not the photo
+    /// a slider is being dragged on. Returns how many photos gained lens data.
+    pub(crate) fn record_lenses(&mut self, found: &[(lightcraft_catalog::PhotoId, String, EmbeddedLens)]) -> usize {
+        use lightcraft_catalog::Source;
+        let dragging = self.interaction.as_ref().map(|i| i.photo);
+        let (mut ops, mut gained) = (Vec::new(), 0);
+        for (id, path, lens) in found {
+            let Some(p) = self.catalog.photo(*id) else { continue };
+            let same_file = matches!(&p.source, Source::File { path: now } if now == path);
+            if p.deleted || p.embedded_lens.is_some() || !p.develops_raw() || !same_file || dragging == Some(*id) {
+                continue;
+            }
+            let probe = crate::media::ProbeInfo { embedded_lens: Some(*lens), ..Default::default() };
+            let mine = crate::cmd::convert::lens_ops(*id, p, &probe);
+            if !mine.is_empty() {
+                ops.extend(mine);
+                gained += 1;
             }
         }
-    })
-    .as_ref()
+        if !ops.is_empty()
+            && let Err(e) = self.apply_system(lightcraft_catalog::Op::Batch { ops })
+        {
+            log::warn!("lens data not recorded: {e}");
+            return 0;
+        }
+        gained
+    }
+
+    /// Take what a background lookup (`optics.findLensProfiles` with `background`) found and record it: how many
+    /// photos gained lens data, or `None` when no lookup has ended since the last call. The UI calls this every
+    /// frame. A lookup started for another library is dropped.
+    pub fn finish_lens_scan(&mut self) -> Option<usize> {
+        let found = self.lens_profiles.state().found.take()?;
+        Some(if found.library == self.library_generation() { self.record_lenses(&found.lenses) } else { 0 })
+    }
+
+    /// Record the lens data a decode of photo `id`'s file found (`info`) when the catalog has none: a raw
+    /// catalogued before the lens database was installed. As at import, the correction is switched on when the
+    /// photo's settings are still what import gave it; an edited photo only gains the data. Bookkeeping, not an
+    /// undo step. Nothing is ever taken away here: a photo keeps its lens data when the database goes.
+    pub(crate) fn learn_lens(&mut self, id: lightcraft_catalog::PhotoId, info: &lightcraft_pipeline::SourceInfo) {
+        let Some(lens) = info.lens else { return };
+        let Some(p) = self.catalog.photo(id) else { return };
+        if p.embedded_lens.is_some() || !p.develops_raw() || self.interaction.is_some() {
+            return;
+        }
+        let probe = crate::media::ProbeInfo { embedded_lens: Some(lens), ..Default::default() };
+        let ops = crate::cmd::convert::lens_ops(id, p, &probe);
+        if !ops.is_empty()
+            && let Err(e) = self.apply_system(lightcraft_catalog::Op::Batch { ops })
+        {
+            log::warn!("photo {}: lens data not recorded: {e}", id.0);
+        }
+    }
 }
 
 /// The database profile for a photo with metadata `m`, for its `w × h` (unoriented, default-cropped) image,
@@ -66,7 +351,7 @@ pub fn for_raw(raw: &lightcraft_raw::RawInfo, meta: impl FnOnce() -> lightcraft_
         let db = database()?;
         let c = raw.crop.clipped(raw.active_area.width, raw.active_area.height);
         let (w, h) = if c.width == 0 || c.height == 0 { (raw.active_area.width, raw.active_area.height) } else { (c.width, c.height) };
-        lookup(db, &meta(), w as f64, h as f64, raw.orientation)
+        lookup(&db, &meta(), w as f64, h as f64, raw.orientation)
     })
 }
 

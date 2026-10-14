@@ -150,6 +150,8 @@ fn main() -> ExitCode {
         dhat::Profiler::builder().file_name(file).build()
     };
     alloc_release::install();
+    // lens profiles downloaded in the app (or with `run optics.downloadLensProfiles`) are read from the settings folder
+    lightcraft_engine::lens_profiles::use_default_dir();
     // Warnings (a GPU render redone on the CPU, an unknown backend name) on stderr; LIGHTCRAFT_LOG
     // or RUST_LOG picks another level (#168).
     lightcraft_engine::logging::install("lightcraft-cli");
