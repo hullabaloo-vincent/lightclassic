@@ -98,6 +98,23 @@ fn point_color(k: u32, lch: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(l, c, h);
 }
 
+// `colorops::bw_lightness`, with `colorops::BW_STOPS` (4) and `BW_HALF_CHROMA` (0.05).
+fn bw_lightness(l: f32, c: f32, mix: f32) -> f32 {
+    let q = max(c, 0.0) / 0.05;
+    let stops = clamp(mix, -1.0, 1.0) * q * q / (1.0 + q * q) * 4.0;
+    if (stops == 0.0 || l <= 0.0) {
+        return max(l, 0.0);
+    }
+    var y = l * l * l;
+    let g = exp2(stops);
+    if (stops < 0.0) {
+        y = y * g;
+    } else if (y < 1.0) {
+        y = y * g / (1.0 + y * (g - 1.0));
+    }
+    return pow(y, 1.0 / 3.0);
+}
+
 // `ColorOps::apply`.
 fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
     if (pu(F_OPS_IDENTITY) != 0u && local_sat == 0.0 && local_hue == 0.0) {
@@ -149,7 +166,7 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
         for (var i = 0u; i < 8u; i++) {
             mix += w[i] * pf(F_BW_MIX + i);
         }
-        l = max(l + mix * min(c / 0.2, 1.0) * 0.25, 0.0);
+        l = bw_lightness(l, c, mix);
         c = 0.0;
     }
     var lab = vec3<f32>(l, c * cos(h), c * sin(h));

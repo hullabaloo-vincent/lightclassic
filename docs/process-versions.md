@@ -22,6 +22,13 @@ stronger Light sliders, issue #196) without changing a single photo someone has 
 - Changes to how a file is decoded or which camera colour it gets change the source, not how settings
   are interpreted; the process doesn't reach that stage today.
 
+**An exception in this fork (2026-10-15):** the B&W mix (`colorops::bw_lightness`) was changed in place, on every
+process. Its sliders barely worked (−100 darkened a blue sky by about two thirds of a stop), which the owner
+reported as broken, and a new process would have left the photos being edited on the weak mix until each was
+updated. Photos with B&W mix values other than 0, including those on the `lc.bw.mono-rich` and `lc.bw.red-filter`
+profiles and the High Contrast B&W preset, now render with the stronger mix. A fork-only process number would also
+collide with upstream's next one.
+
 ## Adding a process
 
 1. Add a variant to `Process` (`V2`), append it to `Process::ALL` (oldest first), give it its number in

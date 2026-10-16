@@ -118,7 +118,7 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
         let lch = lab_to_lch(oklab_from_2020(p.map(|v| (v * gain).max(0.0))));
         all_l += lch[0] as f64;
         n += 1;
-        let k = (lch[1] / 0.2).min(1.0) as f64; // as in the B&W conversion
+        let k = crate::colorops::bw_weight(lch[1]) as f64; // as in the B&W conversion
         if k < 0.05 {
             continue;
         }
@@ -138,7 +138,8 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
             return 0.0;
         }
         let sep = sum_l[i] / mass[i] - mean;
-        (sep * 400.0).clamp(-60.0, 60.0).round()
+        // (a lightness gap of 0.1 gives 15: about half a stop for a colourful pixel, `colorops::BW_STOPS`)
+        (sep * 150.0).clamp(-60.0, 60.0).round()
     })
 }
 

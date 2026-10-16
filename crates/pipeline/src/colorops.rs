@@ -241,7 +241,7 @@ impl ColorOps {
         if let Some(bw) = &self.bw {
             let w = band_weights(h);
             let mix: f32 = (0..8).map(|i| w[i] * bw[i]).sum();
-            l = (l + mix * (c / 0.2).min(1.0) * 0.25).max(0.0);
+            l = bw_lightness(l, c, mix);
             c = 0.0;
         }
         self.grade(lch_to_lab([l, c, h]))
@@ -264,6 +264,43 @@ impl ColorOps {
         }
         oklab_to_2020(lab)
     }
+}
+
+/// How far a B&W mix slider at ±100 moves the grey of a fully colourful pixel, in stops.
+pub const BW_STOPS: f32 = 4.0;
+/// The OkLab chroma at which a colour takes half of its band's B&W mix ([`bw_weight`]).
+pub const BW_HALF_CHROMA: f32 = 0.05;
+
+/// The share of its band's B&W mix a colour of OkLab chroma `c` takes: 0 for a grey, half at
+/// [`BW_HALF_CHROMA`] (a blue sky is about 0.1, skin about 0.05), nearly all for saturated colours. Growing with
+/// the square of chroma near grey, so the colour noise of neutral areas doesn't become grain.
+#[inline]
+pub fn bw_weight(c: f32) -> f32 {
+    let q = c.max(0.0) / BW_HALF_CHROMA;
+    q * q / (1.0 + q * q)
+}
+
+/// The OkLab lightness of a colour's grey in black and white: lightness `l` (the grey of equal OkLab lightness when
+/// the mix is 0), chroma `c`, its bands' slider mix `mix` (−1..1). The mix works like an exposure change of that
+/// colour: at −100 a fully colourful pixel is [`BW_STOPS`] stops darker, so a blue sky can go nearly black as in a
+/// photo through a red filter. Lightening is the same change on the odds `Y / (1 − Y)` of the grey's luminance, so
+/// it approaches white without clipping. Greys, black and white don't move.
+#[inline]
+pub fn bw_lightness(l: f32, c: f32, mix: f32) -> f32 {
+    let stops = mix.clamp(-1.0, 1.0) * bw_weight(c) * BW_STOPS;
+    if stops == 0.0 || l <= 0.0 || !l.is_finite() {
+        return l.max(0.0);
+    }
+    let y = l * l * l;
+    let g = stops.exp2();
+    let y = if stops < 0.0 {
+        y * g
+    } else if y < 1.0 {
+        y * g / (1.0 + y * (g - 1.0))
+    } else {
+        y
+    };
+    y.cbrt()
 }
 
 /// Hue rotation (OkLCh radians) of a calibration primary at ±100.
@@ -362,6 +399,60 @@ mod tests {
         s.bw_mix.blue = 80.0;
         let b2 = ColorOps::new(&s).apply([0.05, 0.1, 0.5], 0.0, 0.0);
         assert!(b2[1] > b[1]);
+    }
+
+    /// The B&W mix is strong, as in Lightroom: Blue −100 takes a clear blue sky most of the way to black, +100
+    /// most of the way to white without clipping, while greys stay put and a dull colour moves less than a vivid
+    /// one. Before, −100 darkened such a sky by about two thirds of a stop (a lightness change of at most 0.25,
+    /// scaled down by chroma / 0.2).
+    #[test]
+    fn the_bw_mix_moves_a_colour_like_an_exposure_change() {
+        let y = lightcraft_color::luminance_2020;
+        let grey = |mix: f64, rgb: [f32; 3]| {
+            let s = DevelopSettings {
+                treatment: lightcraft_develop::Treatment::Bw,
+                bw_mix: lightcraft_develop::BwMix { blue: mix, ..Default::default() },
+                ..Default::default()
+            };
+            y(ColorOps::new(&s).apply(rgb, 0.0, 0.0))
+        };
+        // a clear sky as it reaches this stage (display-linear Rec.2020; OkLab chroma ≈ 0.11)
+        let sky = [0.24, 0.43, 0.86];
+        let c = lab_to_lch(oklab_from_2020(sky))[1];
+        assert!((0.09..0.14).contains(&c), "{c}");
+        let (plain, dark, light) = (grey(0.0, sky), grey(-100.0, sky), grey(100.0, sky));
+        assert!((plain / dark).log2() > 2.5, "Blue −100: {plain} → {dark}");
+        assert!(light > 0.8 && light < 1.0, "Blue +100: {plain} → {light}");
+        // the slider is monotone
+        let steps: Vec<f32> = (-4..=4).map(|i| grey(i as f64 * 25.0, sky)).collect();
+        assert!(steps.windows(2).all(|w| w[1] > w[0]), "{steps:?}");
+        // a grey, black and white don't move; a dull blue moves less than the sky
+        for v in [0.0, 0.18, 1.0] {
+            // (white's OkLab chroma isn't exactly 0 in f32)
+            assert!((grey(-100.0, [v; 3]) - grey(0.0, [v; 3])).abs() < 1e-4, "{v}: {} {}", grey(-100.0, [v; 3]), grey(0.0, [v; 3]));
+        }
+        let dull = [0.32, 0.36, 0.44];
+        assert!((grey(0.0, dull) / grey(-100.0, dull)).log2() < (plain / dark).log2() * 0.6);
+        // another band's slider leaves the sky alone
+        let s = DevelopSettings {
+            treatment: lightcraft_develop::Treatment::Bw,
+            bw_mix: lightcraft_develop::BwMix { red: -100.0, ..Default::default() },
+            ..Default::default()
+        };
+        assert!((y(ColorOps::new(&s).apply(sky, 0.0, 0.0)) / plain - 1.0).abs() < 0.02);
+    }
+
+    #[test]
+    fn bw_lightness_is_bounded_for_hostile_values() {
+        for (l, c, mix) in
+            [(f32::NAN, 0.1, -1.0), (f32::INFINITY, 0.1, 1.0), (-0.5, 0.1, 1.0), (1.4, 0.3, 1.0), (0.6, f32::NAN, 1.0), (0.6, 0.1, 50.0)]
+        {
+            let out = bw_lightness(l, c, mix);
+            assert!(out.is_finite() || !l.is_finite(), "{l} {c} {mix} → {out}");
+            assert!(out >= 0.0 || out.is_nan(), "{l} {c} {mix} → {out}");
+        }
+        assert_eq!(bw_lightness(1.4, 0.3, 1.0), 1.4, "above white stays put");
+        assert!(bw_lightness(0.6, 0.1, 50.0) <= 1.0, "the mix is clamped");
     }
 
     #[test]

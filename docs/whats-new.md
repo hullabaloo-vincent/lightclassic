@@ -1,5 +1,14 @@
 # What's new in LightCraft
 
+## 2026-10-15
+
+### Black & white: the colour sliders work
+- In black and white, the colour sliders (Red … Magenta in the B&W panel) now change the photo as much as you would
+  expect: Blue −100 turns a blue sky dark grey, close to black, as a red filter does; +100 makes it nearly white.
+  Before, −100 hardly changed it.
+- A slider changes colourful areas most and leaves greys alone. Auto picks values to match.
+- Black-and-white photos you have already edited with these sliders (or with the Red Filter and Rich Mono profiles
+  or the High Contrast B&W preset) look stronger now.
 ## 2026-10-13
 
 ### Lens profiles
