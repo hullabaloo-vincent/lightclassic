@@ -749,6 +749,8 @@ mod edited_tests {
             ("", "ARW", true),
             ("SONY ILCE-7M3", "DNG", false),
             ("NIKON CORPORATION NIKON Z5_2", "NEF", false),
+            ("Canon Canon EOS REBEL T5", "CR2", false),
+            ("Canon Canon EOS REBEL T5i", "CR2", true),
         ] {
             let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "a.raw", format, 10, 10, "2026-10-01T00:00:00");
             p.kind = MediaKind::Raw;

@@ -58,6 +58,10 @@ const MODELS: &[(&str, &str)] = &[
     ("SONY", "ILCE-7S"),
     ("SONY", "SLT-A33"),
     ("CANON", "PowerShot G1 X Mark III"),
+    // this fork: the EOS Rebel T5 under its three names, checked on an owner's 20 photos (`crate::canon_presets`)
+    ("CANON", "EOS REBEL T5"),
+    ("CANON", "EOS 1200D"),
+    ("CANON", "EOS Kiss X70"),
 ];
 
 /// Fujifilm's X-Trans III bodies, whose raws carry the camera's own neutral multipliers for Illuminant A and D65

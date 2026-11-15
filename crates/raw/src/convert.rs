@@ -35,6 +35,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         img.data = craft_raw::RawData::U16(Vec::new());
     }
     finish(&mut img);
+    crate::canon_presets::fill(bytes, &mut img);
     Ok(img)
 }
 
@@ -45,6 +46,7 @@ pub(crate) fn decode_reduced(bytes: &[u8], min_long: usize) -> Result<Option<Raw
     let metadata = metadata(bytes, full.format, &full.camera, full.developed_size());
     let mut img = image(raw, metadata);
     finish(&mut img);
+    crate::canon_presets::fill(bytes, &mut img);
     Ok(Some(img))
 }
 

@@ -28,6 +28,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod binned;
+mod canon_presets;
 pub mod color;
 mod convert;
 pub mod dcp;

@@ -4,6 +4,14 @@
 
 #### 2026-11-15
 
+### White balance in Kelvin for the Canon EOS Rebel T5
+- Photos from an EOS Rebel T5 (EOS 1200D, Kiss X70) show their white balance in Kelvin, like Lightroom: As Shot reads
+  about 4800 K for daylight and 3300 K under church lights, and Temperature can be set to a value such as 5500 K. The
+  scale comes from the camera's own white-balance presets, stored in each photo. Before, these photos had the
+  relative −100…+100 scale.
+- From a Lightroom catalog, a T5 photo's Custom white balance keeps Lightroom's Kelvin and tint, and Daylight, Shade
+  and the other presets take the same values as in Lightroom (Daylight 5500 K, +10). Auto is LightCraft's own.
+
 ### Dark Canon photos keep their colour
 - A dark photo full of colour (a candlelit interior at a high ISO) opens with its colours again, as the camera showed
   them, instead of grey-brown. A lamp or another small bright light in the frame no longer costs it its starting look.

@@ -127,7 +127,7 @@ as-shot white for Custom photos, so the photo stays As Shot and `Temperature, Ti
 (issue #510; a DNG keeps the Kelvin value, and an XMP packet with `crs:AsShotTemperature` is
 shifted by the same mired difference, see [xmp-interop.md](xmp-interop.md)). A raw whose camera has
 measured colour matrices (`lightcraft_raw::spectral`: ILCE-7M3, D850, EOS 5D Mark III…), or whose white-balance
-presets give a Kelvin scale (`lightcraft_raw::kelvin_presets`: ILCA-99M2, ILCA-77M2…), edits in Kelvin
+presets give a Kelvin scale (`lightcraft_raw::kelvin_presets`: ILCA-99M2, ILCA-77M2…; in this fork also the EOS Rebel T5 / 1200D), edits in Kelvin
 and keeps the Kelvin value too (issue #730) — when its file was found and probed, since the camera is
 read from the file, not from the Lightroom catalog; a missing file is treated as a relative-scale raw
 until Reload reads it.
