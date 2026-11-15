@@ -25,7 +25,7 @@ const MODULE_BAR_H: f32 = 32.0;
 const TOOL_STRIP_H: f32 = 44.0;
 
 /// Settings ▸ Interface: the style, as `button:settingsInterface-{0,1}` (Classic, Modern).
-pub(super) fn settings_row(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+pub(crate) fn settings_row(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     super::settings::heading(ui, t, crate::i18n::tr("Interface Style"));
     let options = InterfaceStyle::ALL.map(|s| (s, s.label()));
     let mut style = crate::classic::style(&app.ui);
@@ -53,7 +53,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let strip = ui.max_rect();
                 super::detail::filmstrip(app, ui, strip);
             });
-        register(ui.ctx(), "panel:filmstrip", r.response.rect);
+        register(ui, "panel:filmstrip", r.response.rect);
     }
     let frame = egui::Frame::NONE.fill(t.chrome);
     // Print always has its panels; the other modules show the panel that is open
@@ -61,7 +61,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let right = printing || app.ui.right != RightPanel::None;
     if app.ui.left_panel {
         let reserve = if right { RIGHT_WIDTH.min } else { 0.0 };
-        let dragged = super::resizable_side(ui, true, "left_panel", frame, app.ui.left_width, LEFT_WIDTH, reserve, |ui| {
+        let side = super::SidePanel { left: true, id: "left_panel", frame, width: app.ui.left_width, limits: LEFT_WIDTH, reserve };
+        let dragged = super::resizable_side(ui, side, |ui| {
             if app.ui.classic.module == Module::Develop { develop_left::show(app, ui) } else { super::left::show(app, ui) }
         });
         if let Some(width) = dragged {
@@ -69,7 +70,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     if right {
-        let dragged = super::resizable_side(ui, false, "right_panel", frame, app.ui.right_width, RIGHT_WIDTH, 0.0, |ui| {
+        let side = super::SidePanel { left: false, id: "right_panel", frame, width: app.ui.right_width, limits: RIGHT_WIDTH, reserve: 0.0 };
+        let dragged = super::resizable_side(ui, side, |ui| {
             // Develop's own column, except while the profile browser has the whole of it
             if printing {
                 print::panels(app, ui);
@@ -158,8 +160,8 @@ fn module_button(ui: &mut egui::Ui, t: &Tokens, module: Module, active: bool) ->
     let font = t.semibold(14.0);
     let width = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.text).size().x;
     let (r, resp) = ui.allocate_exact_size(vec2(width + 28.0, MODULE_BAR_H), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
-    register(ui.ctx(), format!("module:{}", module.id()), r);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, active, label));
+    register(ui, format!("module:{}", module.id()), r);
     let color = if active {
         t.text
     } else if resp.hovered() {

@@ -108,6 +108,7 @@ pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTo
 /// differ only in colour stay apart in grey. Bands with almost no colourful pixels stay at 0.
 pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64; 8] {
     use lightcraft_color::perceptual::{lab_to_lch, oklab_from_2020};
+    let strong = crate::colorops::bw_strong(s);
     let mut img = lightcraft_raster::resample::fit(src, 512, 512, lightcraft_raster::resample::Filter::Box);
     let base = DevelopSettings { wb: s.wb, light: s.light, process: s.process, ..DevelopSettings::default() };
     crate::local::scene_linear_pre(&mut img, info, &base);
@@ -118,7 +119,8 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
         let lch = lab_to_lch(oklab_from_2020(p.map(|v| (v * gain).max(0.0))));
         all_l += lch[0] as f64;
         n += 1;
-        let k = crate::colorops::bw_weight(lch[1]) as f64; // as in the B&W conversion
+        // as in the B&W conversion
+        let k = if strong { crate::colorops::bw_weight(lch[1]) as f64 } else { (lch[1] / 0.2).min(1.0) as f64 };
         if k < 0.05 {
             continue;
         }
@@ -138,8 +140,9 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
             return 0.0;
         }
         let sep = sum_l[i] / mass[i] - mean;
-        // (a lightness gap of 0.1 gives 15: about half a stop for a colourful pixel, `colorops::BW_STOPS`)
-        (sep * 150.0).clamp(-60.0, 60.0).round()
+        // (with the strong mix a lightness gap of 0.1 gives 15: about half a stop for a colourful pixel,
+        // `colorops::BW_STOPS`; V1 and V2's weak one takes 400 for the same push)
+        (sep * if strong { 150.0 } else { 400.0 }).clamp(-60.0, 60.0).round()
     })
 }
 

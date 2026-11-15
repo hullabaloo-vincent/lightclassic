@@ -1,4 +1,4 @@
-//! The Print module's layout and its commands (`print.set`, `print.export`); the drawing is in
+//! The Print module's layout and its commands (`classicPrint.set`, `classicPrint.export`); the drawing is in
 //! `panels/classic/print.rs`.
 //!
 //! Print lays a photo out on a page and writes the page as an image file, which is what Lightroom Classic's Print
@@ -122,10 +122,10 @@ impl PrintLayout {
 
 const SET_KEYS: &[&str] = &["shape", "longEdge", "width", "height", "background", "size", "x", "y", "format", "quality", "dir"];
 
-/// `print.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}`: change the
+/// `classicPrint.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}`: change the
 /// page. Nothing changes unless all of it can be applied.
 pub(super) fn set(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
-    let bad = |msg: String| format!("print.set: {msg}");
+    let bad = |msg: String| format!("classicPrint.set: {msg}");
     let Some(o) = p.as_object() else { return Err(bad("params must be an object".into())) };
     if let Some(k) = o.keys().find(|k| !SET_KEYS.contains(&k.as_str())) {
         return Err(bad(format!("unknown `{k}` ({})", SET_KEYS.join(", "))));
@@ -207,13 +207,13 @@ pub fn size_percent_range() -> (f64, f64) {
     ((CANVAS_SIZE_RANGE.0 * 100.0).ceil() as f64, (CANVAS_SIZE_RANGE.1 * 100.0) as f64)
 }
 
-/// `print.export {dir?, path?, ids?, background?}`: write the page with each selected photo on it, one file a photo
+/// `classicPrint.export {dir?, path?, ids?, background?}`: write the page with each selected photo on it, one file a photo
 /// (`ids`: default the selection, else the active photo). `dir` is remembered as the Print folder; `path` names the
 /// file of a single photo instead. In the background where the host can (`background: false` waits for it).
 pub(super) fn export(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     use lightcraft_engine::export::{Destination, ExportOptions, export_batch, prepare_batch};
     const KEYS: &[&str] = &["dir", "path", "ids", "background"];
-    let bad = |msg: String| format!("print.export: {msg}");
+    let bad = |msg: String| format!("classicPrint.export: {msg}");
     let Some(o) = p.as_object() else { return Err(bad("params must be an object".into())) };
     if let Some(k) = o.keys().find(|k| !KEYS.contains(&k.as_str())) {
         return Err(bad(format!("unknown `{k}` ({})", KEYS.join(", "))));

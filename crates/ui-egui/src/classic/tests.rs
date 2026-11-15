@@ -235,18 +235,18 @@ fn keys_and_the_control_channel_reach_the_modules() {
     assert_eq!(module(&mut h), "library");
 }
 
-/// Show Clipping (J, or a click on the histogram) marks the clipped pixels themselves in the loupe, in both styles.
-/// It used to draw a red or blue frame around the photo and leave the pixels alone.
+/// Show Clipping (J) marks the clipped pixels themselves in the loupe (upstream's clipping warnings), in the Classic
+/// style as in the Modern one, with nothing drawn around the photo.
 #[test]
 fn show_clipping_paints_the_clipped_pixels_in_the_loupe() {
     use lightcraft_pipeline::Overlay;
-    use lightcraft_pipeline::visualize::CLIPPED_WHITE;
+    use lightcraft_pipeline::visualize::CLIP_HIGH;
     let settle = Duration::from_secs(120);
     let painted = |img: &egui::ColorImage, area: egui::Rect| {
         let [w, h] = img.size;
         let (x0, x1) = (area.left().max(0.0) as usize, (area.right() as usize).min(w));
         let (y0, y1) = (area.top().max(0.0) as usize, (area.bottom() as usize).min(h));
-        let red = egui::Color32::from_rgb(CLIPPED_WHITE[0], CLIPPED_WHITE[1], CLIPPED_WHITE[2]);
+        let red = egui::Color32::from_rgb(CLIP_HIGH[0], CLIP_HIGH[1], CLIP_HIGH[2]);
         (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|(x, y)| img.pixels[y * w + x] == red).count()
     };
     for style in ["modern", "classic"] {
@@ -266,7 +266,7 @@ fn show_clipping_paints_the_clipped_pixels_in_the_loupe() {
 
         key(&mut h, "J", json!({}));
         assert!(h.app.ui.show_clipping, "{style}: J turns Show Clipping on");
-        assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::Clipping);
+        assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::ClipWarnings);
         assert!(h.settle(settle));
         let after = h.snapshot(settle);
         let photo = h.app.image_rect.expect("the loupe shows the photo");

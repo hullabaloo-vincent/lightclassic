@@ -98,9 +98,9 @@ fn list(app: &mut LightcraftApp, ui: &mut egui::Ui, panel: LeftPanel, body: Rect
 fn header_at(ui: &mut egui::Ui, r: Rect, panel: LeftPanel, open: bool) -> egui::Response {
     let title = crate::i18n::tr(panel.title());
     let t = Tokens::get(ui.ctx());
-    let resp = ui.interact(r, ui.id().with(("classicPanel", panel.id())), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
-    register(ui.ctx(), format!("classicPanel:{}", panel.id()), r);
+    let resp = ui.interact(r, ui.scope_id().with(("classicPanel", panel.id())), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::DisclosureTriangle, true, open, title));
+    register(ui, format!("classicPanel:{}", panel.id()), r);
     let p = ui.painter();
     p.rect_filled(r, 0.0, if ui.rect_contains_pointer(r) { t.pressed } else { t.hover });
     p.hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, t.divider));
@@ -119,7 +119,7 @@ fn preset_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, header: Rect) {
     let more = icon_button(&mut row, "presetMore", Icon::More, vec2(26.0, 26.0), false, true, crate::i18n::tr("More preset options"));
     egui::Popup::menu(&more).show(|ui| {
         let r = ui.checkbox(&mut app.ui.preset_thumbs, crate::i18n::tr("Show Thumbnails"));
-        register(ui.ctx(), "presetMenu:thumbnails", r.rect);
+        register(ui, "presetMenu:thumbnails", r.rect);
         ui.separator();
         if ui.button(crate::i18n::tr("Import Presets…")).clicked() {
             let _ = app.run("file.importPresets", json!({}));
