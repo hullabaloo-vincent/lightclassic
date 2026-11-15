@@ -403,7 +403,7 @@ fn start_import(app: &mut LightcraftApp, path: PathBuf, update_existing: bool, c
     spawn_prepare(job, cancel.clone(), tx, ctx.clone())?;
     app.lightroom_last = None;
     app.lightroom = Some(LightroomTask::new(&app.session, Kind::Import, path.clone(), cancel, progress, rx));
-    Ok(json!({"running": true, "kind": "import", "path": path}))
+    Ok(json!({"running": true, "kind": "import", "path": path, "updateExisting": update_existing}))
 }
 
 /// Run Lightroom UI commands before the generic engine dispatcher.

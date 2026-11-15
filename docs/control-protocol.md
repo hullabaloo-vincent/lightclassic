@@ -261,7 +261,7 @@ places (`EngineError::LightroomCatalog`, so `lightcraft-cli --library` and `mcp 
 
 ### Import Lightroom Catalog: where the catalog goes
 
-`file.importLightroom {path?, into?, name?, location?}` (File ▸ Import Lightroom Catalog…, issue #2672). With `into`
+`file.importLightroom {path?, into?, name?, location?, replaceEdits?}` (File ▸ Import Lightroom Catalog…, issue #2672). With `into`
 it acts without asking: `"open"` imports into the library open now (`library.importLightroom`); `"new"` creates the
 library `name` (default: the catalog's file name without `.lrcat`, or `Travel 2`… when taken) in the folder
 `location` (a full path; default: the open library's parent folder) under `app.newLibrary`'s rules, opens it and
@@ -270,7 +270,9 @@ refused before anything is made; so is a new library while an import runs. Witho
 `settings.lightroomImport` `"ask"` (the default) opens a window and returns `{asking: true, path, into}` (`into`: the
 choice it opens with, `"open"` when the library is empty, else `"new"`). Its widgets:
 `radio:lightroomDestination-open`, `radio:lightroomDestination-new`, `field:lightroomLibraryName`,
-`field:lightroomLibraryLocation`, `button:lightroomLibraryChoose` (where there is a folder dialog), `check:lightroomDontAsk` (with Merge only; sets
+`field:lightroomLibraryLocation`, `button:lightroomLibraryChoose` (where there is a folder dialog), `check:lightroomReplaceEdits` (this fork: with Merge into a library
+that has photos, "Replace edits made in LightCraft", the window's `replaceEdits`: photos already in the library take the
+catalog's edits, `library.importLightroom {updateExisting: true}`; the import's start reports `updateExisting`), `check:lightroomDontAsk` (with Merge only; sets
 `"alwaysMerge"`), `button:dialogOk` / `ui.dialog.confirm` (which stays open on an error such as a folder that isn't
 empty) and `button:dialogCancel`. With `"alwaysMerge"` (`ui.set {"settings": {"lightroomImport": "alwaysMerge"}}`,
 or Settings ▸ General `button:settingsLightroomImport-0|1`), or in a session in memory, it imports into the open

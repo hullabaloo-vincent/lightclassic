@@ -73,7 +73,8 @@ image id with its reason, `missingFile`, `missingFolder`, `missingRoot`, `incomp
 `masterSkipped`), also in `library.inspectLightroom`, and the desktop result window says how many in the UI language.
 Virtual copies count as added records too; reimport reports zero additions when all
 records already exist. Existing LightCraft
-edits are preserved by default; `updateExisting=true` explicitly replaces them. Persistent import
+edits are preserved by default; `updateExisting=true` explicitly replaces them (in this fork's desktop app, the
+import window's **Replace edits made in LightCraft** under Merge, `file.importLightroom {replaceEdits}`). Persistent import
 identity prevents reimport from duplicating virtual copies and collections. One undo step reverses
 catalog changes; any saved recovery archives remain available.
 

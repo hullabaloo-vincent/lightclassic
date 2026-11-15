@@ -424,3 +424,43 @@ fn a_new_library_is_refused_when_another_library_was_opened_meanwhile() {
     assert_eq!(open_dir(&h), Some(other));
     assert!(!target.exists(), "no library was made at {}", target.display());
 }
+
+/// "Replace edits made in LightCraft" (this fork): with Merge into a library that has photos, the window offers it,
+/// and its answer reaches the import (`library.importLightroom {updateExisting}`); unticked, existing LightCraft
+/// edits stay, as before. A new library has nothing to replace: the box is greyed out and unticked there.
+#[test]
+fn replace_edits_made_in_lightcraft_reaches_the_import() {
+    let f = Fixture::new("replace");
+    let mut h = f.app(false);
+    let replace = |h: &Headless| match &h.app.ui.dialog {
+        Some(Dialog::LightroomDestination { replace_edits, .. }) => Some(*replace_edits),
+        _ => None,
+    };
+    // without the window: the parameter goes straight through, off by default
+    let r = h.app.run("file.importLightroom", json!({"path": f.lrcat(), "into": "open"})).unwrap();
+    assert_eq!(r["updateExisting"], false, "{r}");
+    import_ends(&mut h, &f.lrcat);
+    let r = h.app.run("file.importLightroom", json!({"path": f.lrcat(), "into": "open", "replaceEdits": true})).unwrap();
+    assert_eq!(r["updateExisting"], true, "{r}");
+    import_ends(&mut h, &f.lrcat);
+    assert!(h.app.run("file.importLightroom", json!({"path": f.lrcat(), "replaceEdits": "yes"})).is_err());
+
+    // the window: offered with Merge, unticked
+    h.app.run("file.importLightroom", json!({"path": f.lrcat()})).unwrap();
+    h.step();
+    h.step();
+    click(&mut h, "radio:lightroomDestination-open");
+    assert!(has(&h, "check:lightroomReplaceEdits"));
+    assert_eq!(replace(&h), Some(false));
+    click(&mut h, "check:lightroomReplaceEdits");
+    assert_eq!(replace(&h), Some(true));
+    shot(&mut h, "lightroom-replace-edits.png");
+    // a new library has none to replace: the box goes unticked, and comes back as it was with Merge
+    click(&mut h, "radio:lightroomDestination-new");
+    h.step();
+    assert_eq!(replace(&h), Some(true), "the choice is kept for Merge");
+    click(&mut h, "radio:lightroomDestination-open");
+    click(&mut h, "button:dialogOk");
+    assert!(replace(&h).is_none(), "the window closed");
+    import_ends(&mut h, &f.lrcat);
+}

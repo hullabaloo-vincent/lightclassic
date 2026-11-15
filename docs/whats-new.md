@@ -4,6 +4,11 @@
 
 #### 2026-11-15
 
+### Lightroom catalogs: replace edits made in LightCraft
+- File ▸ Import Lightroom Catalog… has **Replace edits made in LightCraft** under Merge. Ticked, a photo that is
+  already in your library takes the catalog's edits, even when you had edited it here; unticked (as before), those
+  photos keep their LightCraft edits. One Undo brings the replaced edits back.
+
 ### Develop looks more like Lightroom Classic
 - Every slider in Develop is one line again, as in Lightroom Classic: the name, the slider and the value side by
   side, with a pointed handle. More of the panels fit on screen.

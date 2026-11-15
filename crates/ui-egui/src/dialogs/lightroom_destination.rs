@@ -37,6 +37,9 @@ pub struct Request {
     pub name: Option<String>,
     /// `location`: the folder the new library goes in (default: the open library's parent folder).
     pub location: Option<String>,
+    /// `replaceEdits` (this fork): photos already in the open library take the catalog's edits, replacing the ones
+    /// made in LightCraft (`library.importLightroom {updateExisting: true}`). A new library has none to replace.
+    pub replace_edits: bool,
 }
 
 impl Request {
@@ -54,7 +57,12 @@ impl Request {
             Some(Value::String(s)) => Ok(Some(s.clone())),
             Some(v) => Err(format!("file.importLightroom: `{key}` must be a string, not {v}")),
         };
-        Ok(Request { into, name: text("name")?, location: text("location")? })
+        let replace_edits = match p.get("replaceEdits") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(v) => return Err(format!("file.importLightroom: `replaceEdits` must be true or false, not {v}")),
+        };
+        Ok(Request { into, name: text("name")?, location: text("location")?, replace_edits })
     }
 }
 
@@ -132,7 +140,7 @@ pub fn import(app: &mut LightcraftApp, path: &str, req: &Request) -> Result<Valu
     }
     let on_disk = library_dir(app).is_some();
     match decide(app.ui.settings.lightroom_import, on_disk, library_photos(app), req.into) {
-        Plan::Merge => app.run("library.importLightroom", json!({"path": path})),
+        Plan::Merge => app.run("library.importLightroom", json!({"path": path, "updateExisting": req.replace_edits})),
         Plan::NewLibrary => into_new_library(app, path, req),
         Plan::Ask { new_library } => {
             busy(app)?;
@@ -149,6 +157,7 @@ pub fn import(app: &mut LightcraftApp, path: &str, req: &Request) -> Result<Valu
                 name,
                 location,
                 dont_ask: false,
+                replace_edits: req.replace_edits,
                 generation: app.session.library_generation(),
             });
             Ok(json!({"asking": true, "path": path, "into": if new_library { "new" } else { "open" }}))
@@ -182,8 +191,12 @@ fn into_new_library(app: &mut LightcraftApp, path: &str, req: &Request) -> Resul
 }
 
 /// The window's choice as `file.importLightroom` params.
-fn params(catalog: &str, new_library: bool, name: &str, location: &str) -> Value {
-    if new_library { json!({"path": catalog, "into": "new", "name": name, "location": location}) } else { json!({"path": catalog, "into": "open"}) }
+fn params(catalog: &str, new_library: bool, name: &str, location: &str, replace_edits: bool) -> Value {
+    if new_library {
+        json!({"path": catalog, "into": "new", "name": name, "location": location})
+    } else {
+        json!({"path": catalog, "into": "open", "replaceEdits": replace_edits})
+    }
 }
 
 /// The window's confirm button: import as chosen. "Don't ask again" is kept once a merge has
@@ -191,13 +204,13 @@ fn params(catalog: &str, new_library: bool, name: &str, location: &str) -> Value
 /// agent, the control channel) makes the window stale for both choices: nothing is merged into
 /// it, and no new library is made from defaults that described the library it replaced.
 pub fn confirm(app: &mut LightcraftApp, dialog: &Dialog) -> Result<Value, String> {
-    let Dialog::LightroomDestination { catalog, new_library, name, location, dont_ask, generation, .. } = dialog else {
+    let Dialog::LightroomDestination { catalog, new_library, name, location, dont_ask, replace_edits, generation, .. } = dialog else {
         return Err("not the Lightroom catalog destination window".into());
     };
     if *generation != app.session.library_generation() {
         return Err(crate::i18n::tr("Another library was opened since this window appeared: nothing was imported").to_string());
     }
-    let r = app.run("file.importLightroom", params(catalog, *new_library, name, location))?;
+    let r = app.run("file.importLightroom", params(catalog, *new_library, name, location, *replace_edits))?;
     if !*new_library && *dont_ask {
         app.ui.settings.lightroom_import = LightroomImport::AlwaysMerge;
     }
@@ -220,7 +233,9 @@ pub fn ok_label(dialog: &Dialog) -> &'static str {
 
 /// The window's body: the two choices, the new library's name and location, and "Don't ask again".
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, dialog: &mut Dialog) {
-    let Dialog::LightroomDestination { catalog, library, photos, new_library, name, location, dont_ask, .. } = dialog else { return };
+    let Dialog::LightroomDestination { catalog, library, photos, new_library, name, location, dont_ask, replace_edits, .. } = dialog else {
+        return;
+    };
     let t = crate::theme::Tokens::get(ui.ctx());
     let tr = crate::i18n::tr;
     let file = Path::new(catalog.as_str()).file_name().map_or_else(|| catalog.clone(), |n| n.to_string_lossy().into_owned());
@@ -251,6 +266,26 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, dialog: &mut Dialog) {
             tr("The catalog's photos, collections and edits join the ones already in this library.")
         },
     );
+    // this fork: whose edits win for a photo in both (only with Merge, and only when there are photos to replace)
+    if n > 0 {
+        ui.horizontal(|ui| {
+            ui.add_space(indent);
+            let mut ticked = *replace_edits && !*new_library;
+            let c = ui.add_enabled(!*new_library, egui::Checkbox::new(&mut ticked, tr("Replace edits made in LightCraft")));
+            crate::widgets::register(ui, "check:lightroomReplaceEdits", c.rect);
+            if !*new_library {
+                *replace_edits = ticked;
+            }
+        });
+        note(
+            ui,
+            if *replace_edits && !*new_library {
+                tr("A photo already here takes the catalog's edits, and the ones made to it in LightCraft are replaced (Undo brings them back).")
+            } else {
+                tr("A photo already here that was edited in LightCraft keeps those edits; the catalog's are left out for it.")
+            },
+        );
+    }
     let r = ui.radio_value(new_library, true, tr("Create a new library"));
     crate::widgets::register(ui, "radio:lightroomDestination-new", r.rect);
     ui.add_enabled_ui(*new_library, |ui| {
@@ -340,12 +375,22 @@ mod tests {
         assert_eq!(Request::parse(&json!({})).unwrap(), Request::default());
         assert_eq!(Request::parse(&json!({"into": null})).unwrap(), Request::default());
         let r = Request::parse(&json!({"into": "new", "name": "Travel", "location": "/photos"})).unwrap();
-        assert_eq!(r, Request { into: Some(Destination::New), name: Some("Travel".into()), location: Some("/photos".into()) });
+        assert_eq!(r, Request { into: Some(Destination::New), name: Some("Travel".into()), location: Some("/photos".into()), replace_edits: false });
+        assert!(Request::parse(&json!({"replaceEdits": true})).unwrap().replace_edits);
         assert_eq!(Request::parse(&json!({"into": "open"})).unwrap().into, Some(Destination::Open));
-        for bad in [json!({"into": "elsewhere"}), json!({"into": 1}), json!({"name": 3}), json!({"location": ["a"]})] {
+        for bad in [json!({"into": "elsewhere"}), json!({"into": 1}), json!({"name": 3}), json!({"location": ["a"]}), json!({"replaceEdits": "yes"})]
+        {
             let err = Request::parse(&bad).unwrap_err();
             assert!(err.starts_with("file.importLightroom:"), "{err}");
         }
+    }
+
+    /// The window's answer as the command's params: "Replace edits made in LightCraft" goes with Merge only.
+    #[test]
+    fn the_windows_answer_carries_replace_edits_with_merge() {
+        assert_eq!(params("/c.lrcat", false, "", "", true), json!({"path": "/c.lrcat", "into": "open", "replaceEdits": true}));
+        assert_eq!(params("/c.lrcat", false, "", "", false), json!({"path": "/c.lrcat", "into": "open", "replaceEdits": false}));
+        assert_eq!(params("/c.lrcat", true, "T", "/x", true), json!({"path": "/c.lrcat", "into": "new", "name": "T", "location": "/x"}));
     }
 
     /// The catalog's file name, or the next free one in the location.
