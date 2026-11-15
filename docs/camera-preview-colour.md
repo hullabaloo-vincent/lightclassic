@@ -106,6 +106,36 @@ On the public CC0 EOS R100 / RF-S 18–45 mm sample, the measured framing scale 
 
 This is a per-file camera-look estimate, **not measured spectral calibration or Lightroom parity**. Camera local tone, picture styles, noise reduction and lens warps cannot all be reproduced by a global matrix/curve; same-aspect crops may evade the aspect check. Skin, mixed-light scenes and saturated highlights can still differ from a supplied JPEG. Broader Sony, Nikon and Canon model/lighting coverage, chart-based calibration, absolute WB and other manufacturers remain unverified. Rejected fits and other RAW formats retain their existing behaviour.
 
+### Canon CR2 dark frames (this fork)
+
+Twenty CR2s from one EOS Rebel T5 (EOS 1200D), shot in Adobe RGB (an owner's photos, not committed; numbers only),
+include four church interiors at ISO 3200 whose median luminance is four to six stops under mid-grey. Two gates read
+such a frame as grey, and this fork relaxes both (`camera_preview/dark_colour.rs`; first landed before upstream split
+`camera_preview.rs`, and lost in that merge until 2026-11-15):
+
+- **A dark scene full of colour counted as colourless.** "Coloured" is a linear channel spread above 0.05, which is
+  brightness times saturation. Of the 635 colour pairs of `0697` one had the spread, all 635 a saturation above 0.4.
+  For learning a matrix from the photo (the full look without a camera profile, and the partial look's damped
+  matrix) a pixel now also counts when its spread exceeds 0.3 of its brightest channel (`DARK_COLOUR_SATURATION`),
+  which is what the spread asks at 0.17, just below mid-grey. `calibrate` and an attempt with a known colour model
+  are unchanged.
+- **One lamp held the linear error.** When neither partial-look attempt (all pixels, away from edges) passes, both
+  are tried again with the linear test relaxed: the held-out pairs the look misses most (1%, at least one,
+  `PARTIAL_TRIM`) are left out of both sides, and what remains must not grow (`PARTIAL_LINEAR_LIMIT`); the
+  gamma-encoded error must still fall below 0.7 of the fallback's. Since the look is fitted on the
+  vignetting-corrected sensor, `0687`'s lamp is one held-out pair of 248 and holds 90% of the partial look's linear
+  error: the look renders it blue-white where the camera clipped a proxy pixel that is otherwise dark. With the worst
+  three pairs (1%) left out the look keeps 0.31 of the fallback's linear error; with all of them, 3.0 times it, and
+  the photo opened in the grey fallback.
+  The first pass and the full look's gates are upstream's.
+
+Rendered at 600 px and compared at 200 px with each file's camera JPEG read as Adobe RGB (CIE76, mean over the
+picture): `0687` goes from ΔE 6.08 (neutral fallback, C\* 0.80 of the camera's) to 2.20 (partial look with the
+damped matrix, C\* 1.12); `0697` from a partial look without a matrix (ΔE 2.13, C\* 0.97) to a full look (2.15,
+1.08; held-out RMS 0.0032 → 0.0024). The other 18 render identically; the mean over the 20 goes from 3.31 to 3.11.
+`LOOK_VERSION` 14 refits older smart previews and `RENDER_CACHE_VERSION` 77 redraws cached renders. Not measured on
+the CC0 archive (not available here); the second pass only reaches photos that had no look.
+
 ### Sony ILCE-7RM6 (A7R VI)
 
 Full-frame A7R VI files never reached the fit: their 66.5 MP embedded JPEG exceeded the fit's former 64 MP preview cap, so they opened in the neutral fallback. The cap is now 128 MP. On the full-frame corpus file the holdout RMS went from 0.124 to 0.062, and the render's mean RGB from 85/87/77 to 104/117/79 against the camera JPEG's 108/122/82.

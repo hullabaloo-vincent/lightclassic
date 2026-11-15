@@ -2,6 +2,15 @@
 
 ## In this fork (the Lightroom Classic interface)
 
+#### 2026-11-15
+
+### Dark Canon photos keep their colour
+- A dark photo full of colour (a candlelit interior at a high ISO) opens with its colours again, as the camera showed
+  them, instead of grey-brown. A lamp or another small bright light in the frame no longer costs it its starting look.
+  The fix was lost when this fork took in LightCraft's latest changes.
+- Smart previews are refitted when their originals are online and cached thumbnails are redrawn. Photos you have
+  edited keep their edits.
+
 #### 2026-10-15
 
 ### Black & white: the colour sliders work

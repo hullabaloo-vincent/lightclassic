@@ -1,3 +1,4 @@
+use super::dark_colour::{Coloured, PARTIAL_LINEAR_LIMIT, linear_errors};
 use super::hue_sat::{HueSat, fit_chroma, fit_hue_sat};
 use super::proxy::DARK_FLOOR;
 #[cfg(test)]
@@ -62,7 +63,14 @@ pub(super) type Pair = ([f64; 3], [f64; 3]);
 
 pub(super) type Pairs = Vec<Pair>;
 
-pub(super) fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f, min_chroma: f32, edge_limit: Option<f32>, dark: bool) -> Option<(Pairs, Pairs)> {
+pub(super) fn collect_pairs(
+    sensor: &Rgb32f,
+    reference: &Rgb32f,
+    min_chroma: impl Into<Coloured>,
+    edge_limit: Option<f32>,
+    dark: bool,
+) -> Option<(Pairs, Pairs)> {
+    let coloured = min_chroma.into();
     if (sensor.width, sensor.height) != (reference.width, reference.height) || sensor.data.len() != reference.data.len() {
         return None;
     }
@@ -85,9 +93,7 @@ pub(super) fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f, min_chroma: f32
         if !colour_pair_above(*input, *output, floors) {
             continue;
         }
-        let min = output.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = output.iter().copied().fold(0.0, f32::max);
-        colour += usize::from(max - min > min_chroma);
+        colour += usize::from(coloured.is(*output));
         pairs.push((input.map(f64::from), output.map(f64::from)));
     }
     (pairs.len() >= 256 && colour >= pairs.len() / 20).then_some((pairs, bright))
@@ -299,7 +305,8 @@ fn fit_pairs_on(
 ) -> Option<CameraLook> {
     // A known colour model needs enough signal for tone fitting, not a scene rich enough to
     // learn a new colour matrix. Still reject monochrome references.
-    let (pairs, bright) = collect_pairs(sensor, reference, if colour.is_some() { 0.005 } else { 0.05 }, edge_limit, dark)?;
+    let (pairs, bright) =
+        collect_pairs(sensor, reference, if colour.is_some() { Coloured::Spread(0.005) } else { Coloured::Learnable }, edge_limit, dark)?;
     let candidates = match colour {
         Some(given) => vec![given],
         None => {
@@ -440,11 +447,23 @@ pub(super) fn rank_correlation_ties(pairs: &[([f64; 3], [f64; 3])]) -> f64 {
 /// and in gamma-encoded display values, and when the JPEG shows the same picture
 /// ([`PARTIAL_MIN_RANK_CORRELATION`]). There is no limit on its own error: it only has to be clearly
 /// closer to the camera JPEG than what the photo would get otherwise.
+///
+/// When neither passes, both are tried once more with the linear error only required not to grow
+/// ([`PARTIAL_LINEAR_LIMIT`], this fork); the gamma-encoded one must still fall below [`MIN_IMPROVEMENT`].
 pub(super) fn fit_partial(sensor: &Rgb32f, reference: &Rgb32f, highlights: &HighlightCheck) -> Option<CameraLook> {
-    [None, Some(EDGE_CONTRAST)].into_iter().find_map(|edge_limit| fit_partial_on(sensor, reference, edge_limit, highlights))
+    [MIN_IMPROVEMENT, PARTIAL_LINEAR_LIMIT].into_iter().find_map(|linear| {
+        [None, Some(EDGE_CONTRAST)].into_iter().find_map(|edge_limit| fit_partial_on(sensor, reference, edge_limit, highlights, linear))
+    })
 }
 
-fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>, highlights: &HighlightCheck) -> Option<CameraLook> {
+/// One [`fit_partial`] attempt; `linear_limit` is the share of the neutral fallback's linear error it may keep.
+pub(super) fn fit_partial_on(
+    sensor: &Rgb32f,
+    reference: &Rgb32f,
+    edge_limit: Option<f32>,
+    highlights: &HighlightCheck,
+    linear_limit: f64,
+) -> Option<CameraLook> {
     // as for a known colour model: enough signal for the tone, but no monochrome reference
     let (pairs, bright) = collect_pairs(sensor, reference, 0.005, edge_limit, false)?;
     let related = rank_correlation(&pairs);
@@ -454,8 +473,7 @@ fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>, 
         }
         return None;
     }
-    let spread = |y: &[f64; 3]| y.iter().copied().fold(f64::NEG_INFINITY, f64::max) - y.iter().copied().fold(f64::INFINITY, f64::min);
-    let colourful = pairs.iter().filter(|(_, y)| spread(y) > 0.05).count() >= pairs.len() / 20;
+    let colourful = pairs.iter().filter(|(_, y)| Coloured::Learnable.is_f64(y)).count() >= pairs.len() / 20;
     let matrix = match colourful.then(|| fit_matrix(&pairs)).flatten() {
         Some(own) => Mat3(std::array::from_fn(|r| {
             std::array::from_fn(|c| Mat3::IDENTITY.0[r][c] + PARTIAL_MATRIX_WEIGHT * (own.0[r][c] - Mat3::IDENTITY.0[r][c]))
@@ -472,9 +490,10 @@ fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>, 
         return None;
     }
     let encoded = |v: f64| v.max(0.0).powf(1.0 / 2.2);
-    let (mut before, mut after, mut before_encoded, mut after_encoded, mut samples) = (0.0, 0.0, 0.0, 0.0, 0);
+    let (mut linear, mut before_encoded, mut after_encoded, mut samples) = (Vec::new(), 0.0, 0.0, 0);
     for (x, target) in pairs.iter().step_by(3) {
         let (fallback, partial) = (displayed(*x, &neutral), displayed(matrix.apply(*x), &tone));
+        let (mut before, mut after) = (0.0, 0.0);
         for c in 0..3 {
             before += (fallback[c] - target[c]).powi(2);
             after += (partial[c] - target[c]).powi(2);
@@ -482,18 +501,23 @@ fn fit_partial_on(sensor: &Rgb32f, reference: &Rgb32f, edge_limit: Option<f32>, 
             after_encoded += (encoded(partial[c]) - encoded(target[c])).powi(2);
             samples += 1;
         }
+        linear.push((before, after));
     }
+    let trimmed = linear_limit > MIN_IMPROVEMENT;
+    let (before, after) = linear_errors(linear, trimmed);
     if lightcraft_pipeline::profiling() {
         eprintln!(
-            "[profile] camera look partial (tone{}{}) holdout RMS {:.5} -> {:.5} ({samples} channels{})",
+            "[profile] camera look partial (tone{}{}) holdout RMS {:.5} -> {:.5}, gamma-encoded {:.5} -> {:.5} ({samples} channels{}{})",
             if look.tone.chroma().iter().any(|k| *k != 1.0) { ", chroma" } else { "" },
             if matrix != Mat3::IDENTITY { ", damped matrix" } else { "" },
             (before / samples.max(1) as f64).sqrt(),
             (after / samples.max(1) as f64).sqrt(),
-            if edge_limit.is_some() { ", away from edges" } else { "" }
+            (before_encoded / samples.max(1) as f64).sqrt(),
+            (after_encoded / samples.max(1) as f64).sqrt(),
+            if edge_limit.is_some() { ", away from edges" } else { "" },
+            if trimmed { ", linear error only not to grow, worst 1% left out" } else { "" }
         );
     }
-    let better =
-        after.is_finite() && after_encoded.is_finite() && after < before * MIN_IMPROVEMENT && after_encoded < before_encoded * MIN_IMPROVEMENT;
+    let better = after.is_finite() && after_encoded.is_finite() && after < before * linear_limit && after_encoded < before_encoded * MIN_IMPROVEMENT;
     (samples > 0 && better).then_some(look)
 }
