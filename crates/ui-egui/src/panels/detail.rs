@@ -1219,6 +1219,10 @@ fn general_cursor(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img
     if !resp.dragged() && !resp.hovered() {
         return;
     }
+    // this fork: Classic's eyedropper in place of the crosshair
+    if crate::classic::eyedropper::pointer(app, ui) {
+        return;
+    }
     let cursor = match app.ui.tool.as_str() {
         "wbPicker" | "colorRange" | "pointColor" => egui::CursorIcon::Crosshair,
         tool if tool.starts_with("tat:") => egui::CursorIcon::ResizeVertical,

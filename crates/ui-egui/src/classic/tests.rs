@@ -284,3 +284,44 @@ fn show_clipping_paints_the_clipped_pixels_in_the_loupe() {
         assert_eq!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::None);
     }
 }
+
+/// Soft proofing as Classic shows it: the toolbar's Soft Proofing checkbox turns it on, the Histogram panel becomes
+/// the Proof Histogram, and its corners then switch the two gamut warnings instead of the clipping sides. The Modern
+/// style keeps its own strip and has no such checkbox.
+#[test]
+fn soft_proofing_from_the_toolbar_and_the_histogram_corners() {
+    let mut app = classic();
+    run(&mut app, "module.develop");
+    let mut h = Headless::new(app, [1400.0, 900.0], 1.0);
+    assert!(h.settle(Duration::from_secs(120)), "the loupe never comes to rest");
+    let shown = |h: &Headless, id: &str| h.app.widgets.iter().any(|(w, _)| w == id);
+    let click = |h: &mut Headless, id: &str| {
+        let r = h.request("ui.clickWidget", json!({"id": id}), T);
+        assert_eq!(r["ok"], true, "{id}: {r}");
+        h.step();
+        h.step();
+    };
+    assert!(shown(&h, "histogram:shadows") && !shown(&h, "button:proofDestWarning"), "the clipping triangles before proofing");
+    click(&mut h, "check:softProof");
+    assert!(h.app.ui.soft_proof, "the toolbar's checkbox turns soft proofing on");
+    assert_eq!(super::proof::histogram_title(&h.app), "Proof Histogram");
+    assert!(shown(&h, "button:createProofCopy") && !shown(&h, "histogram:shadows"), "the proof's options, and its corners");
+
+    click(&mut h, "button:proofDestWarning");
+    assert!(h.app.ui.proof.dest_warning && !h.app.ui.proof.display_warning, "the right corner: the destination's warning");
+    click(&mut h, "button:proofDisplayWarning");
+    assert!(h.app.ui.proof.display_warning, "the left corner: the display's warning");
+    let ui = &h.app.ui;
+    assert!(!ui.show_clipping && !ui.classic.clip_shadows && !ui.classic.clip_highlights, "no clipping side was switched");
+
+    click(&mut h, "check:softProof");
+    assert!(!h.app.ui.soft_proof);
+    click(&mut h, "histogram:highlights");
+    assert!(h.app.ui.classic.clip_highlights, "the triangles are back");
+
+    let r = h.request("engine.execute", json!({"command": "view.interface", "params": {"style": "modern"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(!shown(&h, "check:softProof"), "the Modern style has no Soft Proofing checkbox");
+}

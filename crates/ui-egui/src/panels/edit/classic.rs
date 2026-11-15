@@ -11,7 +11,7 @@
 use super::{
     Align2, DevelopSettings, Icon, LightcraftApp, PhotoId, REL_TEMP, REL_TINT, Rect, RightPanel, Sense, Stroke, Tokens, WbMode, apply_slider_out,
     control, controls, curve_editor, divider, flyout_row, grading, hdr_row, histogram, json, k_to_rel, paint, point_color, pos2, profile_menu,
-    register, rel_to_k, shown_settings, slider, soft_proofing, sub_title, text_button, vec2,
+    register, rel_to_k, shown_settings, slider, sub_title, text_button, vec2,
 };
 use crate::classic::DevelopPanel;
 
@@ -174,18 +174,20 @@ fn panel_header(ui: &mut egui::Ui, id: &str, title: &str, open: bool, switch: Op
     (resp, toggled)
 }
 
-/// The Histogram panel: its header folds it (`view.histogram`), and soft proofing sits under it as in the Edit panel.
+/// The Histogram panel: its header folds it (`view.histogram`). While soft proofing it is the Proof Histogram, with
+/// the proof's options under the plot ([`crate::classic::proof`]).
 fn histogram_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let open = app.ui.histogram;
-    let (resp, _) = panel_header(ui, "histogram", "Histogram", open, None);
+    let (resp, _) = panel_header(ui, "histogram", crate::classic::proof::histogram_title(app), open, None);
     if resp.clicked() {
         let _ = app.run("view.classicPanel", json!({"panel": "histogram"}));
     }
     if open {
         histogram(app, ui, id);
-    }
-    if app.ui.soft_proof {
-        soft_proofing(app, ui, id);
+        if app.ui.soft_proof {
+            crate::classic::proof::options(app, ui, id);
+            divider(ui);
+        }
     }
 }
 
@@ -297,17 +299,7 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             let active = app.ui.tool == "wbPicker";
-            if crate::widgets::icon_button(
-                ui,
-                "wbPicker",
-                Icon::Picker,
-                vec2(30.0, 30.0),
-                active,
-                true,
-                crate::i18n::tr("White Balance Selector (W)"),
-            )
-            .clicked()
-            {
+            if crate::classic::eyedropper::button(ui, active).clicked() {
                 if active {
                     app.ui.tool.clear();
                 } else if let Err(e) = app.run("tool.wbPicker", json!({})) {

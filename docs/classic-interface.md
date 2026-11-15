@@ -24,6 +24,8 @@ the style.
 | CLASSIC.4 | Develop left panels (Navigator, Presets, Snapshots, History) | done |
 | CLASSIC.5 | Desktop and web apps start in Classic | done |
 | CLASSIC.6 | HSL / Color with every colour, B&W panel; top bar without cloud and chat icons | done |
+| CLASSIC.7 | One-line sliders, Classic's Basic panel, per-side clipping triangles, brushed spots as strokes | done |
+| CLASSIC.8 | Soft proofing as Classic shows it; the White Balance Selector's eyedropper | done |
 | PRINT.1, PRINT.2 | Print module: the photo on a page of a chosen shape and size, placed by hand, written as an image | done |
 
 ## Which style an app starts in
@@ -49,7 +51,8 @@ Top to bottom (`crates/ui-egui/src/panels/classic/mod.rs`, `show`):
    - Library: the sources on the left; Info, Keywords, Versions or History on the right when open.
    - Develop: Navigator, Presets, Snapshots and History on the left, Classic's develop panels on the right (both
      below).
-4. **Toolbar** under the photo area, between the columns: view modes, rating and flags, zoom.
+4. **Toolbar** under the photo area, between the columns: view modes, rating and flags, zoom. In Develop's loupe it
+   ends with the **Soft Proofing** checkbox (`check:softProof`), as S does.
 5. **Filmstrip** across the whole window (`panel:filmstrip`), in every view including the grids; View ▸ Filmstrip
    (F6, `/`) hides it. The loupe, Compare, Survey and Reference do not draw their own strip in this style.
 
@@ -77,8 +80,8 @@ behaviour and widget ids). Under the scroll, **Previous** (`button:previous`, `d
 
 | Panel (`classicPanel:<id>`) | Built from |
 |---|---|
-| Histogram (`histogram`) | the Edit panel's histogram (exposure line), with Classic's clipping triangles (`histogram:shadows`, `histogram:highlights`): each shows its own side's clipping on the photo (shadows blue, highlights red; `view.clippingSide`), is boxed while it does and bright while that side clips; J shows or hides both. Soft proofing under it |
-| Basic (`basic`) | Treatment: Color \| Black & White (`button:treatment-color`, `button:treatment-bw`); Profile and its amount, the profile browser; the WB eyedropper, WB mode, Temp, Tint; Tone with Auto and HDR at its right: Exposure, Contrast \| Highlights, Shadows, Whites, Blacks (and the HDR sliders); Presence: Texture, Clarity, Dehaze \| Vibrance, Saturation |
+| Histogram (`histogram`) | the Edit panel's histogram (exposure line), with Classic's clipping triangles (`histogram:shadows`, `histogram:highlights`): each shows its own side's clipping on the photo (shadows blue, highlights red; `view.clippingSide`), is boxed while it does and bright while that side clips; J shows or hides both. While soft proofing it is the **Proof Histogram** (`crates/ui-egui/src/classic/proof.rs`): its corners hold the gamut warnings instead, the display's at the left (blue on the photo, `button:proofDisplayWarning`) and the destination's at the right (red, `button:proofDestWarning`), and the proof's options sit under the plot: Profile, Intent and Simulate Paper & Ink (for a printer profile, dimmed otherwise) and Create Proof Copy. The Modern style's Soft Proofing strip is not drawn |
+| Basic (`basic`) | Treatment: Color \| Black & White (`button:treatment-color`, `button:treatment-bw`); Profile and its amount, the profile browser; the White Balance Selector (an eyedropper, `icon:wbPicker`; over the photo the pointer becomes the eyedropper, its tip on the point it samples: `classic/eyedropper.rs`), WB mode, Temp, Tint; Tone with Auto and HDR at its right: Exposure, Contrast \| Highlights, Shadows, Whites, Blacks (and the HDR sliders); Presence: Texture, Clarity, Dehaze \| Vibrance, Saturation |
 | Tone Curve (`toneCurve`) | the curve editor: point curves per channel, the parametric sliders, targeted adjustment |
 | HSL / Color (`hsl`), **B&W** in black and white | every colour at once (Red … Magenta) for one attribute, chosen by `button:hslView-hue` / `-sat` / `-lum`, or all three (`-all`); the targeted adjustment tool; Point Color under them. For a black-and-white photo the panel is titled B&W and holds the eight colours' share of the grey mix (`bw.*`), with Auto |
 | Color Grading (`colorGrading`) | the wheels, Blending and Balance |
@@ -218,7 +221,8 @@ The Classic style is additive: new files (`crates/ui-egui/src/classic.rs`, `crat
 upstream's files: `state.rs` (the `classic` field), `lib.rs` and `panels.rs` (the modules), `app.rs` (reconcile after a
 UI command), `app/frame.rs` (the frame is one branch), `menus/ui_commands.rs` and `menus/run.rs` (the commands),
 `menus/menubar.rs` (checked items), `dialogs/settings/display.rs` (the style row), `panels/topbar.rs`,
-`panels/grid.rs` and `render.rs` (the shared thumbnails), and `apps/lightcraft/src/main.rs` and
+`panels/grid.rs` and `render.rs` (the shared thumbnails), `panels/bottombar.rs` (the Soft Proofing checkbox),
+`panels/detail.rs` (the eyedropper pointer, one-sided clipping), `panels/edit/histogram.rs` (the corner buttons), and `apps/lightcraft/src/main.rs` and
 `apps/lightcraft-web/src/web.rs` (`host_default`). The Modern layout and the docking code are not edited, and every
 hook does nothing in the Modern style.
 
@@ -255,6 +259,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | minor | CLASSIC.8: soft proofing as Classic shows it (the toolbar's Soft Proofing checkbox, the Proof Histogram with the gamut warnings in its corners, Profile / Intent / Simulate Paper & Ink / Create Proof Copy under it); the White Balance Selector drawn as an eyedropper, which is also the pointer over the photo while it picks |
 | 2026-11-15 | minor | CLASSIC.7: one-line sliders across the Develop column; Basic laid out as Classic's (Treatment, Profile, WB with its eyedropper, Tone with Auto); Previous / Reset under the panels; the histogram's clipping triangles show their state and work one side each (`view.clippingSide`); brushed spots drawn as one stroke outline |
 | 2026-11-15 | minor | Upstream merged (3,082 commits): the fork's lens profiles, Canon colour-space read and Show Clipping give way to upstream's; a Lens Blur panel in Develop; the Print module's commands are `classicPrint.set` / `classicPrint.export` (⌘⌥P), since upstream's Print dialog has `print.set` and ⌘P; hooks moved with upstream's files |
 | 2026-10-13 | minor | LENS.3: the Lens Corrections panel names the lens and what its profile corrects, or offers the lens database download (the same note in the Modern style's Optics section) |

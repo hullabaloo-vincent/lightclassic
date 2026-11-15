@@ -9,13 +9,14 @@
 //! [`ClassicState::clip_shadows`]: super::ClassicState::clip_shadows
 //! [`ClassicState::clip_highlights`]: super::ClassicState::clip_highlights
 
-use egui::{Color32, Painter, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
+use egui::{Color32, Painter, Rect, Sense, Shape, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_pipeline::Overlay;
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::state::UiState;
 use crate::theme::Tokens;
+use crate::widgets::register;
 
 /// A side of the histogram: `shadows` or `highlights`, as the buttons' widget ids name them (`histogram:{side}`).
 pub(crate) fn is_side(side: &str) -> bool {
@@ -71,6 +72,50 @@ pub(crate) fn overlay(ui: &UiState) -> Option<Overlay> {
         (false, true) => Some(Overlay::ClipWarningsHighlights),
         _ => None,
     }
+}
+
+/// The histogram's two top corners in the Classic style (`[shadows, highlights]`): a triangle for each side's
+/// clipping (`histogram:shadows`, `histogram:highlights`), or the gamut warnings while soft proofing
+/// ([`super::proof::corners`]). False, drawing nothing, in the Modern style, whose own buttons go there instead.
+pub(crate) fn corners(app: &mut LightcraftApp, ui: &egui::Ui, rects: [Rect; 2], clipping: Option<(f32, f32)>) -> bool {
+    if !super::active(app) {
+        return false;
+    }
+    if app.ui.soft_proof {
+        super::proof::corners(app, ui, rects);
+        return true;
+    }
+    let t = Tokens::get(ui.ctx());
+    let mut clicked = None;
+    for (name, rect, label, clipped) in [
+        ("shadows", rects[0], "Shadow clipping", clipping.map(|(lo, _)| lo > 0.003)),
+        ("highlights", rects[1], "Highlight clipping", clipping.map(|(_, hi)| hi > 0.003)),
+    ] {
+        let response = ui.interact(rect, ui.scope_id().with(("histogram-clipping", name)), Sense::click());
+        register(ui, format!("histogram:{name}"), rect);
+        let active = side_on(&app.ui, name);
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, crate::i18n::tr(label)));
+        paint(ui.painter(), rect, &t, active, response.hovered(), clipped == Some(true));
+        let how = match (name == "shadows", active) {
+            (true, true) => "Click to hide clipped shadows (blue). J shows or hides both sides.",
+            (true, false) => "Click to show clipped shadows in blue. J shows or hides both sides.",
+            (false, true) => "Click to hide clipped highlights (red). J shows or hides both sides.",
+            (false, false) => "Click to show clipped highlights in red. J shows or hides both sides.",
+        };
+        let status = match clipped {
+            Some(true) => "Clipping detected in this preview.",
+            Some(false) => "No clipping detected in this preview.",
+            None => "Histogram not yet available.",
+        };
+        let tip = format!("{}\n{}\n{}", crate::i18n::tr(label), crate::i18n::tr(how), crate::i18n::tr(status));
+        if response.on_hover_text(tip).clicked() {
+            clicked = Some(name);
+        }
+    }
+    if let Some(side) = clicked {
+        let _ = app.run("view.clippingSide", json!({"side": side}));
+    }
+    true
 }
 
 /// A clipping button as Classic draws it: a triangle that is bright when this side of the photo clips, and a box

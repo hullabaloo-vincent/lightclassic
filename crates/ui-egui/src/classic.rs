@@ -17,7 +17,9 @@ use crate::LightcraftApp;
 use crate::state::{RightPanel, UiState, ViewMode};
 
 pub(crate) mod clipping;
+pub(crate) mod eyedropper;
 pub mod print;
+pub(crate) mod proof;
 pub(crate) mod slider;
 pub(crate) mod spot_outline;
 

@@ -18,6 +18,12 @@
   right one clipped highlights in red, each on its own, and each is boxed while it is on. J still shows both.
 - Remove draws a painted spot as the outline of the stroke you painted (and its source as a fainter copy), instead of
   a ring for every dab of the brush.
+- Soft proofing is shown as in Classic: a **Soft Proofing** checkbox at the right of the toolbar under the photo
+  (S still works), and while it is on the histogram becomes the Proof Histogram. Its corners switch the gamut
+  warnings (left: colours your display can't show, in blue; right: colours the proof profile can't hold, in red), and
+  Profile, Intent, Simulate Paper & Ink and Create Proof Copy sit under it.
+- The white-balance picker is an eyedropper, and while you pick, the pointer over the photo is that eyedropper, its
+  tip on the point it will sample.
 
 ### White balance in Kelvin for the Canon EOS Rebel T5
 - Photos from an EOS Rebel T5 (EOS 1200D, Kiss X70) show their white balance in Kelvin, like Lightroom: As Shot reads

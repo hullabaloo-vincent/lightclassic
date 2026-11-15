@@ -177,6 +177,8 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, compact_zo
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
     child.spacing_mut().item_spacing.x = 6.0;
+    // this fork: Classic's Soft Proofing checkbox, at the right end in Develop
+    crate::classic::proof::toolbar_checkbox(app, &mut child);
     if matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey)
         && icon_button(
             &mut child,
