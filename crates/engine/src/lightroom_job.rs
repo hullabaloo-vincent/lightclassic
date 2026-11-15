@@ -24,6 +24,12 @@ fn error(message: impl Into<String>) -> crate::EngineError {
     crate::EngineError::BadParams { cmd: COMMAND.into(), msg: message.into() }
 }
 
+/// The import was cancelled ([`crate::ErrorKind::Cancelled`]: not a failure). The message is the
+/// one it always had, so control-channel and MCP clients see the same `error` text.
+fn cancelled() -> crate::EngineError {
+    crate::EngineError::Cancelled(error("Lightroom import cancelled").to_string())
+}
+
 fn stage_archive(archive_dir: Option<&Path>, data: &mut CatalogImport) -> crate::Result<Option<PathBuf>> {
     let archive_path = archive_dir.map(|dir| crate::lightroom_archive::store_best_effort(dir, data).map_err(error)).transpose()?.flatten();
     if archive_dir.is_some() && archive_path.is_none() {
@@ -232,34 +238,32 @@ impl LightroomJob {
     /// Read/probe/stage all source data off the owner thread.
     pub fn prepare(&mut self, cancel: &AtomicBool) -> crate::Result<PreparedLightroom> {
         if cancel.load(Ordering::Relaxed) {
-            return Err(error("Lightroom import cancelled"));
+            return Err(cancelled());
         }
-        let mut data =
-            lightroom_catalog::read_with_progress(&self.path, cancel, &self.progress.catalog_total, &self.progress.catalog_done).map_err(error)?;
+        // (reading stops with a message when `cancel` is set: the flag says it was cancelled)
+        let mut data = lightroom_catalog::read_source(
+            &self.path,
+            self.archive_dir.as_deref(),
+            cancel,
+            &self.progress.catalog_total,
+            &self.progress.catalog_done,
+        )
+        .map_err(|e| if cancel.load(Ordering::Relaxed) { cancelled() } else { error(e) })?;
         lightroom_catalog::validate_for_job(&data).map_err(error)?;
         if cancel.load(Ordering::Relaxed) {
-            return Err(error("Lightroom import cancelled"));
+            return Err(cancelled());
         }
-        let paths: Vec<String> = data
-            .photos
-            .iter()
-            .filter(|photo| lightroom_catalog::number_for_job(&photo.image, "masterImage") == 0)
-            .map(|photo| photo.path.clone())
-            .collect();
-        let missing_sources = data
-            .photos
-            .iter()
-            .filter(|photo| lightroom_catalog::number_for_job(&photo.image, "masterImage") == 0)
-            .filter(|photo| !Path::new(&photo.path).is_file())
-            .map(|photo| normalize(&photo.path))
-            .collect();
-        // the catalog step's last unit (validation, and looking for each original), then the photos
+        let (paths, missing_sources) = original_paths(&data, cancel)?;
+        // Catalog entries name files, never folders. Missing originals already have enough
+        // catalog metadata for placeholders; probing them again only adds failed I/O and errors.
+        // Complete the catalog step before the separate read/add photo progress starts.
         self.progress.catalog_done.fetch_add(1, Ordering::Relaxed);
         self.progress.photos.store(true, Ordering::Relaxed);
-        let normal = self.import.prepare(&paths, cancel);
+        self.import.total.fetch_add(paths.len(), Ordering::Relaxed);
+        let normal = self.import.prepare_files(paths, cancel);
         if cancel.load(Ordering::Relaxed) {
             normal.rollback();
-            return Err(error("Lightroom import cancelled"));
+            return Err(cancelled());
         }
         let archive_path = stage_archive(self.archive_dir.as_deref(), &mut data)?;
         let index_path = self.archive_dir.as_ref().map(|dir| dir.join("lightroom-index.json"));
@@ -282,7 +286,7 @@ impl LightroomJob {
 pub fn commit_prepared(s: &mut crate::Session, mut prepared: PreparedLightroom) -> crate::Result<LightroomCompletion> {
     if prepared.cancelled {
         prepared.normal.rollback();
-        return Err(error("Lightroom import cancelled"));
+        return Err(cancelled());
     }
     if !prepared.token.matches(s) {
         prepared.normal.rollback();
@@ -298,6 +302,7 @@ pub fn commit_prepared(s: &mut crate::Session, mut prepared: PreparedLightroom) 
     prepared.normal.revalidate_add(s);
     let options = ImportOptions { mode: ImportMode::Add, on_deleted: crate::import::OnDeleted::Skip, ..ImportOptions::default() };
     let now = prepared.now.clone();
+    let existed: HashSet<lightcraft_catalog::PhotoId> = s.catalog.photos().map(|p| p.id).collect();
     let files = crate::import::commit_prepared(s, &options, &now, prepared.normal)?;
     let applied = lightroom_catalog::apply_prepared(
         s,
@@ -309,11 +314,36 @@ pub fn commit_prepared(s: &mut crate::Session, mut prepared: PreparedLightroom) 
             archive_path: prepared.archive_path,
             missing_sources: &prepared.missing_sources,
             undo0,
+            existed: &existed,
         },
     )?;
     let path = prepared.token.library_dir().map(|dir| dir.join("Interop/lightroom-index.json"));
     let bytes = if path.is_some() { Some(serde_json::to_vec(&applied.index).map_err(|e| error(e.to_string()))?) } else { None };
     Ok(LightroomCompletion { report: applied.report, finalization: LightroomArchiveFinalization { path, bytes } })
+}
+
+fn original_paths(data: &CatalogImport, cancel: &AtomicBool) -> crate::Result<(Vec<String>, HashSet<String>)> {
+    let mut paths = Vec::new();
+    let mut missing = HashSet::new();
+    let mut seen = HashSet::new();
+    for photo in &data.photos {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        if lightroom_catalog::number_for_job(&photo.image, "masterImage") != 0 {
+            continue;
+        }
+        let key = normalize(&photo.path);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if photo.original_is_file() {
+            paths.push(photo.path.clone());
+        } else {
+            missing.insert(key);
+        }
+    }
+    Ok((paths, missing))
 }
 
 fn normalize(path: &str) -> String {
@@ -328,11 +358,14 @@ mod tests {
     fn empty_data() -> CatalogImport {
         CatalogImport {
             source: "fixture.lrcat".into(),
+            catalog_id: None,
+            catalog_path: None,
             photos: Vec::new(),
             collections: Vec::new(),
             members: Vec::new(),
             collection_content: Vec::new(),
             warnings: Vec::new(),
+            skipped: Vec::new(),
         }
     }
 
@@ -361,6 +394,8 @@ mod tests {
         PreparedLightroom {
             data: CatalogImport {
                 source: "fixture.lrcat".into(),
+                catalog_id: None,
+                catalog_path: None,
                 photos: vec![lightroom_catalog::CatalogPhoto {
                     source_id: 1,
                     uuid: "fixture-photo".into(),
@@ -371,11 +406,13 @@ mod tests {
                     keywords: Vec::new(),
                     history: Vec::new(),
                     snapshots: Vec::new(),
+                    original: lightroom_catalog::Original::Local,
                 }],
                 collections: Vec::new(),
                 members: Vec::new(),
                 collection_content: Vec::new(),
                 warnings: Vec::new(),
+                skipped: Vec::new(),
             },
             normal: Prepared::default(),
             index: ImportIndex::default(),
@@ -435,9 +472,24 @@ mod tests {
         let mut session = crate::Session::new();
         let before = session.catalog.to_snapshot();
         let prepared = cancelled_prepared(&session);
-        assert!(commit_prepared(&mut session, prepared).is_err());
+        let Err(e) = commit_prepared(&mut session, prepared) else { panic!("a cancelled import commits nothing") };
+        assert_eq!(e.kind(), crate::ErrorKind::Cancelled, "{e}");
         assert_eq!(session.catalog.to_snapshot(), before);
         assert!(session.undo.is_empty());
+    }
+
+    /// Cancelling while the catalog is read is [`crate::ErrorKind::Cancelled`] whatever the message
+    /// says, and a failure that is not a cancellation is not one, even when its text says "cancelled".
+    #[test]
+    fn a_cancelled_read_is_cancelled_by_kind() {
+        let mut session = crate::Session::new();
+        let mut job = LightroomJob::new(&mut session, PathBuf::from("/nonexistent/cancelled.lrcat"), false).unwrap();
+        let Err(e) = job.prepare(&AtomicBool::new(true)) else { panic!("cancelled before it started") };
+        assert_eq!(e.kind(), crate::ErrorKind::Cancelled, "{e}");
+        // the `error` text clients see is unchanged
+        assert_eq!(e.to_string(), "invalid parameters for `library.importLightroom`: Lightroom import cancelled");
+        let Err(e) = job.prepare(&AtomicBool::new(false)) else { panic!("no such catalog") };
+        assert_ne!(e.kind(), crate::ErrorKind::Cancelled, "{e}");
     }
 
     #[test]
@@ -494,6 +546,7 @@ mod tests {
                         serde_json::json!(format!("history-{source_id}-{}", "x".repeat(8 * 1024))),
                     )])],
                     snapshots: Vec::new(),
+                    original: lightroom_catalog::Original::Local,
                 }
             })
             .collect();
@@ -521,6 +574,61 @@ mod tests {
         );
         assert_eq!(session.catalog.len(), 5_000);
         std::fs::remove_dir_all(archive_dir).unwrap();
+    }
+
+    /// A file new to the library takes the catalog's edit even when it brings settings of its own. The DNG that
+    /// Lightroom's AI Denoise writes embeds the `crs:` settings of the moment it was written; a black-and-white
+    /// conversion made in the catalog afterwards was dropped, because the file's own settings made the new photo
+    /// look already edited in LightCraft and so kept. A photo that was in the library before the import keeps its
+    /// edit.
+    #[test]
+    fn a_new_file_takes_the_catalogs_edit_over_the_settings_it_brings() {
+        let dir = std::env::temp_dir().join(format!("lightcraft-lr-job-embedded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (new, old) = (dir.join("new.jpg"), dir.join("old.jpg"));
+        for f in [&new, &old] {
+            std::fs::write(f, b"fixture").unwrap();
+        }
+        // what the file says about itself: colour, exposure +0.65
+        std::fs::write(
+            dir.join("new.xmp"),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.65" crs:ConvertToGrayscale="False"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let mut session = crate::Session::new();
+        // `old.jpg` is in the library already, edited here
+        let r = session.execute("library.import", &serde_json::json!({"paths": [old.to_string_lossy()]})).unwrap();
+        let old_id = lightcraft_catalog::PhotoId(r["imported"][0].as_u64().unwrap());
+        let mut personal = lightcraft_develop::DevelopSettings::default();
+        personal.light.exposure = 1.5;
+        session.set_develop(old_id, personal, "Personal").unwrap();
+
+        let photo = |id: i64, path: &std::path::Path| {
+            let mut p = prepared_for(&session, &path.to_string_lossy(), 0).data.photos.remove(0);
+            p.source_id = id;
+            p.uuid = format!("photo-{id}");
+            p.image.insert("id_local".into(), serde_json::json!(id));
+            // what the catalog says: black and white, exposure -0.4
+            p.settings = "s = { ConvertToGrayscale = true, Exposure2012 = -0.4 }".into();
+            p
+        };
+        let mut prepared = prepared_for(&session, &new.to_string_lossy(), 0);
+        prepared.data.photos = vec![photo(1, &new), photo(2, &old)];
+        prepared.missing_sources.clear();
+        let opts = ImportOptions { mode: ImportMode::Add, on_deleted: crate::import::OnDeleted::Skip, ..ImportOptions::default() };
+        let paths = [new.to_string_lossy().to_string(), old.to_string_lossy().to_string()];
+        prepared.normal = ImportJob::new(&mut session, opts).unwrap().prepare(&paths, &AtomicBool::new(false));
+        let report = commit_prepared(&mut session, prepared).unwrap().report;
+
+        let new_id = lightcraft_catalog::PhotoId(report["mapping"]["1"].as_u64().unwrap());
+        let p = session.catalog.photo(new_id).unwrap();
+        assert_eq!(p.develop.treatment, lightcraft_develop::Treatment::Bw, "the catalog's black and white");
+        assert_eq!(p.develop.light.exposure, -0.4, "the catalog's exposure, not the file's");
+        assert!(p.is_edited());
+        assert_eq!(session.catalog.photo(old_id).unwrap().develop.light.exposure, 1.5, "an edit made here is kept");
+        assert_eq!(report["preservedExistingEdits"], 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

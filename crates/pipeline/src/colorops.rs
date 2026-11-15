@@ -140,6 +140,8 @@ pub struct ColorOps {
     /// Point Color samples that change something (applied after the mixer).
     pub points: Vec<PointK>,
     pub bw: Option<[f32; 8]>,
+    /// The B&W mix is [`bw_lightness`] (process V3 and later, this fork); V1 and V2 keep their weak one.
+    pub bw_strong: bool,
     /// Wheels (shadows, midtones, highlights, global), blending, balance.
     pub grading: Option<([WheelK; 4], f32, f32)>,
     /// OkLCh hue of skin tones (protected by vibrance).
@@ -169,6 +171,7 @@ impl ColorOps {
                 s.point_colors.iter().take(lightcraft_develop::MAX_POINT_COLORS).filter(|p| !p.is_neutral()).map(PointK::new).collect()
             },
             bw: crate::is_bw(s).then(|| s.bw_mix.bands().map(|v| (v / 100.0) as f32)),
+            bw_strong: bw_strong(s),
             grading: (!g.is_neutral()).then(|| {
                 (
                     [wheel(&g.shadows), wheel(&g.midtones), wheel(&g.highlights), wheel(&g.global)],
@@ -241,7 +244,7 @@ impl ColorOps {
         if let Some(bw) = &self.bw {
             let w = band_weights(h);
             let mix: f32 = (0..8).map(|i| w[i] * bw[i]).sum();
-            l = bw_lightness(l, c, mix);
+            l = if self.bw_strong { bw_lightness(l, c, mix) } else { (l + mix * (c / 0.2).min(1.0) * 0.25).max(0.0) };
             c = 0.0;
         }
         self.grade(lch_to_lab([l, c, h]))
@@ -264,6 +267,13 @@ impl ColorOps {
         }
         oklab_to_2020(lab)
     }
+}
+
+/// Whether `s`'s B&W mix is the strong one ([`bw_lightness`]): process V3 and later. This fork changed the mix after
+/// V3 existed; V1 and V2 keep the weak one they always had (a lightness shift of at most 0.25 × min(chroma / 0.2, 1)),
+/// so photos edited on them look as they did (`docs/process-versions.md`).
+pub fn bw_strong(s: &DevelopSettings) -> bool {
+    !matches!(s.process.process(), lightcraft_develop::Process::V1 | lightcraft_develop::Process::V2)
 }
 
 /// How far a B&W mix slider at ±100 moves the grey of a fully colourful pixel, in stops.
@@ -433,6 +443,17 @@ mod tests {
         }
         let dull = [0.32, 0.36, 0.44];
         assert!((grey(0.0, dull) / grey(-100.0, dull)).log2() < (plain / dark).log2() * 0.6);
+        // a photo still on process V2 keeps the weak mix it was edited with
+        let v2 = |mix: f64| {
+            let s = DevelopSettings {
+                treatment: lightcraft_develop::Treatment::Bw,
+                bw_mix: lightcraft_develop::BwMix { blue: mix, ..Default::default() },
+                process: lightcraft_develop::Process::V2.version(),
+                ..Default::default()
+            };
+            y(ColorOps::new(&s).apply(sky, 0.0, 0.0))
+        };
+        assert!((v2(0.0) / v2(-100.0)).log2() < 1.0, "V2: {} → {}", v2(0.0), v2(-100.0));
         // another band's slider leaves the sky alone
         let s = DevelopSettings {
             treatment: lightcraft_develop::Treatment::Bw,

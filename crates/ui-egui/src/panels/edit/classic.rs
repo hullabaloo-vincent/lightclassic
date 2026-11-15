@@ -8,7 +8,11 @@
 //! here, marked "as the Edit panel's": keep the two alike when either changes. `panels::classic::tests` checks
 //! that no slider of the Edit panel is missing from these panels.
 
-use super::*;
+use super::{
+    Align2, DevelopSettings, Icon, LightcraftApp, PhotoId, REL_TEMP, REL_TINT, Rect, RightPanel, Sense, Stroke, Tokens, WbMode, apply_slider_out,
+    control, controls, curve_editor, divider, flyout_row, grading, hdr_row, histogram, json, k_to_rel, paint, point_color, pos2, profile_menu,
+    register, rel_to_k, shown_settings, slider, soft_proofing, sub_title, text_button, vec2,
+};
 use crate::classic::DevelopPanel;
 
 /// Height of a panel's header.
@@ -71,6 +75,7 @@ fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, panel: DevelopPanel, d: &Dev
         DevelopPanel::LensCorrections => lens_corrections(app, ui, d, id),
         DevelopPanel::Transform => crate::panels::right::geometry(app, ui, id),
         DevelopPanel::Effects => effects(app, ui, d),
+        DevelopPanel::LensBlur => super::lens_blur(app, ui, d),
         DevelopPanel::Calibration => calibration(app, ui, d),
     }
 }
@@ -82,8 +87,8 @@ fn panel_header(ui: &mut egui::Ui, id: &str, title: &str, open: bool, switch: Op
     let title = crate::i18n::tr(title);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
-    register(ui.ctx(), format!("classicPanel:{id}"), r);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::DisclosureTriangle, true, open, title));
+    register(ui, format!("classicPanel:{id}"), r);
     let p = ui.painter();
     p.rect_filled(r, 0.0, if ui.rect_contains_pointer(r) { t.pressed } else { t.hover });
     p.hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, t.divider));
@@ -93,9 +98,9 @@ fn panel_header(ui: &mut egui::Ui, id: &str, title: &str, open: bool, switch: Op
     let mut toggled = None;
     if let Some(on) = switch {
         let eye = Rect::from_center_size(pos2(r.left() + 22.0, r.center().y), vec2(16.0, 16.0));
-        let switched = ui.interact(eye, ui.id().with(("classicSwitch", id)), Sense::click());
-        switched.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, title));
-        register(ui.ctx(), format!("classicSwitch:{id}"), eye);
+        let switched = ui.interact(eye, ui.scope_id().with(("classicSwitch", id)), Sense::click());
+        switched.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, title));
+        register(ui, format!("classicSwitch:{id}"), eye);
         paint(ui.painter(), eye, Icon::Eye, if on { t.icon } else { t.text_disabled });
         if !on {
             ui.painter().line_segment([eye.left_bottom(), eye.right_top()], Stroke::new(1.5, t.text_disabled));
@@ -202,7 +207,8 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
             ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(13.0)).color(t.text_dim));
             let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
             let r = crate::widgets::dropdown(ui, "profile", crate::i18n::profile_label(&d.profile.id, name), t.font(15.0), t.text_label);
-            egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, d));
+            let below = r.rect.bottom();
+            egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, d, below));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::icon_button(
                     ui,
@@ -228,7 +234,7 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
         egui::Frame::NONE.inner_margin(margin(0, 10)).show(ui, |ui| {
             let mut on = d.profile.camera_local_tone;
             let r = ui.checkbox(&mut on, crate::i18n::tr("Camera local tone mapping"));
-            register(ui.ctx(), "check:profile.cameraLocalTone", r.rect);
+            register(ui, "check:profile.cameraLocalTone", r.rect);
             if r.on_hover_text(crate::i18n::tr("Apply the local tone mapping stored in the raw (Apple ProRAW), as the camera renders it")).changed() {
                 let _ = app.run("develop.merge", json!({"settings": {"profile": {"camera_local_tone": on}}, "label": "Camera Local Tone Mapping"}));
             }
@@ -283,7 +289,7 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
         apply_slider_out(app, &REL_TINT, out, |app, v| app.run("develop.set", json!({"control": "wb.tint", "value": v})));
     }
     sub_title(ui, crate::i18n::tr("Tone"));
-    hdr_row(app, ui, d);
+    hdr_row(app, ui, d, id);
     for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
         control(app, ui, d, c, true);
     }
@@ -325,7 +331,7 @@ fn targeted_row(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, &str
                     .on_hover_text(crate::i18n::tr("Targeted adjustment: drag up/down on the photo to adjust the colours there"))
                     .clicked()
                 {
-                    set_tat(app, ui.ctx(), &tool, active);
+                    super::curve::set_tat(app, ui.ctx(), &tool, active);
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| after(app, ui));
@@ -409,49 +415,9 @@ fn detail(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: P
     }
 }
 
-/// Lens Corrections: the profile, manual distortion and vignetting, defringe and lateral CA (as the Edit panel's
-/// Optics section).
+/// Lens Corrections: the Edit panel's Optics section ([`super::optics`]).
 fn lens_corrections(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId) {
-    let has_lens = app.session.catalog.photo(id).is_some_and(|p| p.embedded_lens.is_some());
-    egui::Frame::NONE.inner_margin(margin(8, 4)).show(ui, |ui| {
-        let mut ca = d.optics.remove_ca;
-        if ui.checkbox(&mut ca, crate::i18n::tr("Remove Chromatic Aberration")).changed() {
-            let _ = app.run("develop.merge", json!({"settings": {"optics": {"remove_ca": ca}}, "label": "Remove CA"}));
-        }
-        let mut lp = d.optics.lens_profile;
-        if ui.checkbox(&mut lp, crate::i18n::tr("Enable Lens Corrections")).changed() {
-            let _ = app.run("develop.merge", json!({"settings": {"optics": {"lens_profile": lp}}, "label": "Lens Corrections"}));
-        }
-        crate::panels::lens_profiles::note(app, ui, id, lp);
-    });
-    if d.optics.lens_profile {
-        for c in ["optics.profileDistortion", "optics.profileVignetting"] {
-            control(app, ui, d, c, has_lens && crate::panels::lens_profiles::scales(app, id, c));
-        }
-    }
-    sub_title(ui, crate::i18n::tr("Manual"));
-    for c in ["optics.distortion", "optics.vignetting"] {
-        control(app, ui, d, c, true);
-    }
-    control(app, ui, d, "optics.vignettingMidpoint", d.optics.vignetting != 0.0);
-    ui.add_space(6.0);
-    let open = app.ui.flyout_open("defringe");
-    if flyout_row(ui, "defringe", crate::i18n::tr("Defringe"), Icon::Picker, open).clicked() {
-        app.ui.toggle_flyout("defringe");
-    }
-    if open {
-        control(app, ui, d, "optics.defringePurple", true);
-        let on = d.optics.defringe_purple_amount > 0.0;
-        control(app, ui, d, "optics.defringePurpleHueLo", on);
-        control(app, ui, d, "optics.defringePurpleHueHi", on);
-        control(app, ui, d, "optics.defringeGreen", true);
-        let on = d.optics.defringe_green_amount > 0.0;
-        control(app, ui, d, "optics.defringeGreenHueLo", on);
-        control(app, ui, d, "optics.defringeGreenHueHi", on);
-        sub_title(ui, crate::i18n::tr("Lateral Chromatic Aberration"));
-        control(app, ui, d, "optics.caRed", true);
-        control(app, ui, d, "optics.caBlue", true);
-    }
+    super::optics(app, ui, d, id);
 }
 
 /// Effects: the post-crop vignette and grain (the Edit panel's Effects section without Texture, Clarity and Dehaze,

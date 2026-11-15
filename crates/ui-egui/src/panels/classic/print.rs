@@ -19,9 +19,9 @@ use crate::widgets::{register, segmented, slider, text_button};
 /// How near the middle of the page (as a fraction of it) a dragged photo snaps to it.
 const SNAP: f32 = 0.012;
 
-/// Change the page (`print.set`); what cannot be applied is said in a toast.
+/// Change the page (`classicPrint.set`); what cannot be applied is said in a toast.
 fn set(app: &mut LightcraftApp, ctx: &egui::Context, params: serde_json::Value) {
-    if let Err(e) = app.run("print.set", params) {
+    if let Err(e) = app.run("classicPrint.set", params) {
         app.toast(ctx, e);
     }
 }
@@ -53,7 +53,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let [r, g, b] = canvas.background;
     ui.painter().rect_filled(page.translate(vec2(0.0, 3.0)).expand(2.0), 2.0, Color32::from_black_alpha(90));
     ui.painter().rect_filled(page, 0.0, Color32::from_rgb(r, g, b));
-    register(ui.ctx(), "printPage", page);
+    register(ui, "printPage", page);
     let Some(id) = app.session.active() else {
         ui.painter().text(
             page.center(),
@@ -66,7 +66,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     };
     let Some((w, h, left, top)) = placed(app, id) else { return };
     let photo = Rect::from_min_size(page.min + vec2(left as f32 * scale, top as f32 * scale), vec2(w as f32 * scale, h as f32 * scale));
-    register(ui.ctx(), "printPhoto", photo);
+    register(ui, "printPhoto", photo);
     // The loupe's render when it is of this photo, else the thumbnail (asked for at its largest).
     super::super::grid::request_thumb(app, id, 512, 9);
     let tex = app.renderer.textures.get(&Slot::Main).filter(|tex| tex.photo == id).or_else(|| app.renderer.thumb(id));
@@ -79,7 +79,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             on_page.rect_filled(photo, 0.0, Color32::from_gray(96));
         }
     }
-    let resp = ui.interact(photo.intersect(page), egui::Id::new("print-photo"), Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
+    let resp = ui.interact(photo.intersect(page), egui::Id::unique("print-photo"), Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
     if resp.hovered() || resp.dragged() {
         on_page.rect_stroke(photo, 0.0, Stroke::new(1.0, t.accent), StrokeKind::Inside);
     }
@@ -87,7 +87,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         // The drag is kept whole between frames, apart from the snapped place it shows: a photo caught on a centre
         // line then comes off it again when the pointer moves on.
-        let key = egui::Id::new("print-photo-at");
+        let key = egui::Id::unique("print-photo-at");
         let delta = resp.drag_delta();
         let (x, y) = ui.data(|d| d.get_temp::<(f32, f32)>(key)).unwrap_or((canvas.x, canvas.y));
         let (x, y) = ((x + delta.x / page.width().max(1.0)).clamp(0.0, 1.0), (y + delta.y / page.height().max(1.0)).clamp(0.0, 1.0));
@@ -109,7 +109,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ui.painter().line_segment([pos2(page.left(), page.center().y), pos2(page.right(), page.center().y)], guide);
         }
     } else {
-        ui.data_mut(|d| d.remove::<(f32, f32)>(egui::Id::new("print-photo-at")));
+        ui.data_mut(|d| d.remove::<(f32, f32)>(egui::Id::unique("print-photo-at")));
     }
 }
 
@@ -117,7 +117,7 @@ pub(super) fn page(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 fn title(ui: &mut egui::Ui, id: &str, text: &str) {
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
-    register(ui.ctx(), format!("classicPanel:{id}"), r);
+    register(ui, format!("classicPanel:{id}"), r);
     ui.painter().rect_filled(r, 0.0, t.hover);
     ui.painter().hline(r.x_range(), r.bottom() - 0.5, Stroke::new(1.0, t.divider));
     ui.painter().text(pos2(r.right() - 20.0, r.center().y), Align2::RIGHT_CENTER, crate::i18n::tr(text), t.semibold(13.0), t.text);
@@ -212,7 +212,7 @@ pub(super) fn panels(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 ui.label(egui::RichText::new(crate::i18n::tr("Folder")).color(t.text_dim).size(12.0));
                 let shown = if folder.is_empty() { crate::i18n::tr("None chosen").to_string() } else { folder.clone() };
                 let r = ui.add(egui::Label::new(egui::RichText::new(shown).color(t.text_label).size(12.0)).truncate());
-                register(ui.ctx(), "printFolder", r.rect);
+                register(ui, "printFolder", r.rect);
                 r.on_hover_text(folder);
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -225,7 +225,7 @@ pub(super) fn panels(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     }
                     let n = app.session.selection.ids.len().max(usize::from(app.session.active().is_some()));
                     if text_button(ui, "printToFile", crate::i18n::tr("Print to File"), false).clicked() {
-                        match app.run("print.export", json!({"dir": crate::classic::print::folder(app)})) {
+                        match app.run("classicPrint.export", json!({"dir": crate::classic::print::folder(app)})) {
                             Ok(_) => app.toast(
                                 ui.ctx(),
                                 if n > 1 {

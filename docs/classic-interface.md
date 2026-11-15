@@ -1,6 +1,6 @@
 # The Classic interface style
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (Lens Corrections names the photo's lens profile and offers the lens database download; earlier: the Print module)
+> **Last reviewed:** 2026-11-15 · **Changes:** [revision history](#revision-history)
 
 LightCraft's window has two arrangements, chosen in **View ▸ Classic Interface** or **Settings ▸ Interface ▸
 Interface Style**:
@@ -82,6 +82,7 @@ presets, copy and paste, History and scripts see no difference between the style
 | Lens Corrections (`lensCorrections`) | Remove Chromatic Aberration, the lens profile (with the lens it is for and what it corrects, or the offer to download the lens database: [lens-profiles.md](lens-profiles.md)), manual Distortion and Vignetting, Defringe, lateral CA |
 | Transform (`transform`) | Upright (with guides), Constrain Crop, Vertical, Horizontal, Rotate, Aspect, Scale, Offsets |
 | Effects (`effects`) | the post-crop vignette and Grain |
+| Lens Blur (`lensBlur`) | the Edit panel's Lens Blur section as it is: amount, focal range, bokeh, the focus and blur brushes |
 | Calibration (`calibration`) | Shadows tint and the three primaries |
 
 - **Folding.** A click on a header folds its panel; so does `view.classicPanel {panel, open?}`. A panel that stands
@@ -118,8 +119,10 @@ Four panels under headers that fold them, the triangle and title at the left as 
 ## The Print module
 
 Print lays the active photo out on a page and writes the page as an image file: Lightroom Classic's Print module
-with "Print to: JPEG File". It is the third entry of the module picker (`module:print`, ⌘⌥6; File ▸ Print to File…,
-⌘P, goes there too).
+with "Print to: JPEG File". It is the third entry of the module picker (`module:print`, ⌘⌥6; File ▸ Print Page to File…,
+⌘⌥P, goes there too). Upstream's own Print dialog (File ▸ Print…, ⌘P: contact sheets, picture packages, PDF) is
+separate and keeps its commands (`print.set`, `print.exportPdf`); this module's are `classicPrint.set` and
+`classicPrint.export`.
 
 - **The page** is in the middle of the window (`printPage`), with the photo on it (`printPhoto`). Drag the photo to
   move it: it stays on the page and catches on the page's centre lines. The filmstrip and the sources on the left
@@ -147,8 +150,8 @@ It exists only in the Classic style; `module.print` says so in the Modern one.
 | `module.library` | ⌘⌥1 | Window | Back to the Library, at the view and panel it was left with |
 | `module.develop` | ⌘⌥2 | Window | The active photo in the loupe with the develop panels |
 | `module.print` | ⌘⌥6 | Window | The Print module (Classic style only) |
-| `print.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}` | — | — | Change the page: `shape` is a key of the list above (`1x1`, `4x5`, `5x4`, `2x3`, `3x2`, `9x16`, `16x9`, `a4`, `a4wide`), sizes are pixels, `size` 0.02..1, `x` / `y` 0..1, `background` a name (`white`, `light`, `grey`, `black`) or `[r, g, b]`, `format` `jpeg` / `png` / `tiff`. Nothing changes unless all of it can be applied |
-| `print.export {dir?, path?, ids?, background?}` | ⌘P | File (Print to File…) | Write the page for each selected photo. From the menu outside Print it opens Print first |
+| `classicPrint.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}` | — | — | Change the page: `shape` is a key of the list above (`1x1`, `4x5`, `5x4`, `2x3`, `3x2`, `9x16`, `16x9`, `a4`, `a4wide`), sizes are pixels, `size` 0.02..1, `x` / `y` 0..1, `background` a name (`white`, `light`, `grey`, `black`) or `[r, g, b]`, `format` `jpeg` / `png` / `tiff`. Nothing changes unless all of it can be applied |
+| `classicPrint.export {dir?, path?, ids?, background?}` | ⌘⌥P | File (Print Page to File…) | Write the page for each selected photo. From the menu outside Print it opens Print first |
 | `view.interface {style?}` | — | View (checkable) | `classic` or `modern`; without `style`, the other one |
 | `view.classicPanel {panel, open?}` | — | — | Fold or unfold a Develop panel: on the right `histogram`, `basic`, `toneCurve`, `hsl`, `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`; on the left `navigator`, `presets`, `snapshots`, `history`. Without `open`, the other state |
 
@@ -200,32 +203,39 @@ H and M open the photo in Develop.
 
 ## Keeping up with upstream
 
-The Classic style is additive: new files (`crates/ui-egui/src/classic.rs`, `crates/ui-egui/src/panels/classic/`) and
-hooks of a few lines in `state.rs`, `lib.rs` (the frame is one branch in `LightcraftApp::ui`), `menus.rs`,
-`menubar.rs`, `panels/settings.rs`, `panels/grid.rs` and `render.rs` (the shared thumbnails). The Modern layout and
-the docking code are not edited, and every hook does nothing in the Modern style.
+The Classic style is additive: new files (`crates/ui-egui/src/classic.rs`, `crates/ui-egui/src/classic/`,
+`crates/ui-egui/src/panels/classic/`, `crates/ui-egui/src/panels/edit/classic.rs`) and hooks of a few lines in
+upstream's files: `state.rs` (the `classic` field), `lib.rs` and `panels.rs` (the modules), `app.rs` (reconcile after a
+UI command), `app/frame.rs` (the frame is one branch), `menus/ui_commands.rs` and `menus/run.rs` (the commands),
+`menus/menubar.rs` (checked items), `dialogs/settings/display.rs` (the style row), `panels/topbar.rs`,
+`panels/grid.rs` and `render.rs` (the shared thumbnails), and `apps/lightcraft/src/main.rs` and
+`apps/lightcraft-web/src/web.rs` (`host_default`). The Modern layout and the docking code are not edited, and every
+hook does nothing in the Modern style.
 
 The Develop panels are a child module of the Edit panel (`panels/edit/classic.rs`, declared by one line in
-`edit.rs`), so they use its private pieces (histogram, curve editor, mixers, grading wheels) as they are. Two
-function boundaries were added without moving code: `edit::shown_settings` (the settings as the panel shows them)
-and, in `panels/right.rs`, `crop_tool` and `geometry` (the two halves of the Crop panel) and `versions_body` and
-`activity_body` (Versions and History without their titles). What the Edit panel draws
-inline (the Auto row, the profile row, white balance, the vignette style, the optics checkboxes) is drawn again in
+`edit.rs`), so they use its private pieces (histogram, curve editor, mixers, grading wheels, Lens Blur) as they are.
+Function boundaries were added without changing what they draw: `edit::shown_settings` (the settings as the panel
+shows them) and `edit::optics` (the Optics section, which the Lens Corrections panel calls); in
+`panels/right/crop.rs`, `crop_tool` and `geometry` (the two halves of the Crop panel); in `panels/right/history.rs`,
+`versions_body` and `activity_body` (Versions and History without their titles), re-exported by `panels/right.rs`.
+What the Edit panel draws inline (the Auto row, the profile row, white balance, the vignette style) is drawn again in
 `classic.rs`; a fix to one of those upstream has to be repeated there.
 
 Tripwires stand in for merge conflicts. The frame matches on `ViewMode` without a wildcard, so a view added
 upstream fails to compile until it is placed in the Classic frame. And
 `every_slider_of_the_edit_and_crop_panels_is_in_the_classic_panels` fails when the Modern Edit or Crop panel gains a
-slider that the Classic panels lack. The frame's tests also assert the Modern frame is drawn as before, and `tests/classic_accessibility.rs` walks the screen-reader tree of both modules, every Develop
-tool and every panel.
+slider that the Classic panels lack (its list of Modern sections to open has to name a section upstream adds, as
+Lens Blur showed). The frame's tests also assert the Modern frame is drawn as before, and
+`tests/classic_accessibility.rs` walks the screen-reader tree of both modules, every Develop tool and every panel.
 
-Lens profiles ([lens-profiles.md](lens-profiles.md)) are this fork's work too, though not a Classic feature, and
-touch upstream's code more directly. New files: `crates/engine/src/cmd/lens_profiles.rs` and
-`crates/ui-egui/src/panels/lens_profiles.rs`. Hooks: two lines in `cmd/mod.rs`, `learn_lens` in `media.rs`'s
-`accept`, a kind name in `activity.rs`, `pump` in `lib.rs`, one line in each app's `main`, and the Optics section's
-note in `edit.rs`, replaced by one call (repeated in `edit/classic.rs`). Two upstream files are edited in place and
-will conflict if upstream changes the same code: `crates/lensdb/src/lib.rs` (the zoom that fills the frame) and
-`crates/engine/src/lens_profiles.rs` (the database is kept in a reloadable store instead of read once).
+**The 2026-11-15 merge** (3,082 upstream commits) took upstream's own versions of what the fork had built alongside:
+lens profiles from the lensfun database (download, lookup, the panel's profile name, the corrected frame cropped
+inside its blank edges), the Canon colour space read from the maker note, and Show Clipping (J, upstream's clipping
+warnings). The fork's versions were dropped. What stays the fork's own outside the Classic files: the Print canvas
+(`crates/engine/src/export/canvas.rs` and a few lines in `export/`, the MCP schema), the stronger B&W mix
+(`colorops::bw_lightness`, `finish.wgsl`, see [process-versions.md](process-versions.md)), the Lightroom catalog
+import's rule that only photos already in the library keep their edits and its spot removal
+(`lightroom_catalog.rs`, `lightroom_job.rs`, `preset_import.rs`, `crs_masks.rs`) and the build script.
 
 The Presets panel is the Modern one drawn whole and moved up by its title row, which is clipped away under the
 Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes that row's height,
@@ -235,8 +245,9 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | minor | Upstream merged (3,082 commits): the fork's lens profiles, Canon colour-space read and Show Clipping give way to upstream's; a Lens Blur panel in Develop; the Print module's commands are `classicPrint.set` / `classicPrint.export` (⌘⌥P), since upstream's Print dialog has `print.set` and ⌘P; hooks moved with upstream's files |
 | 2026-10-13 | minor | LENS.3: the Lens Corrections panel names the lens and what its profile corrects, or offers the lens database download (the same note in the Modern style's Optics section) |
-| 2026-10-13 | minor | PRINT.2: the Print module (page preview, Layout / Photo / Page / Print Job panels, `module.print`, `print.set`, `print.export`) |
+| 2026-10-13 | minor | PRINT.2: the Print module (page preview, Layout / Photo / Page / Print Job panels, `module.print`, `classicPrint.set`, `classicPrint.export`) |
 | 2026-10-13 | minor | CLASSIC.6: HSL / Color shows every colour per attribute and is the B&W panel in black and white; the top bar loses its cloud and chat icons |
 | 2026-10-13 | minor | CLASSIC.5: the desktop and web apps start in Classic; accessibility audit of the Classic layout |
 | 2026-10-13 | minor | CLASSIC.4: Develop's left column: Navigator, Presets, Snapshots, History |

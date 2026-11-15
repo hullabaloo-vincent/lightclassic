@@ -1,51 +1,74 @@
 # Lens profiles from a lens database
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (the database is downloaded from inside the app and kept in the settings folder; photos already in the library gain their profile; corrected images fill the frame)
-
 Raws that carry no lens correction of their own (DNG `OpcodeList3`, or a camera correction a raw reader converts,
-see [sony-lens-corrections.md](sony-lens-corrections.md)) are corrected from the **lensfun project's lens database**.
-The app does not ship it: the data is licensed CC BY-SA 3.0 and stays a separate download, which the app fetches
-when you ask. Only the database's XML files are used, never lensfun's code. Adobe LCP profiles are never used.
+see [sony-lens-corrections.md](sony-lens-corrections.md) and [nikon-lens-corrections.md](nikon-lens-corrections.md)) are corrected from a **lens database in the lensfun
+XML format**. The app does not ship any lens database: lensfun's data is licensed CC BY-SA 3.0 and is downloaded at
+run time, never bundled and never committed. Adobe LCP profiles are never used.
 
-## Getting the database
+## Setup: one click
 
-- **In the app:** open a raw photo, open **Lens Corrections** (Optics in the Modern style) and click **Download
-  Lens Profiles**, or choose Photo ▸ Download Lens Profiles (lensfun). The download is about 5 MB (56 XML files from
-  `github.com/lensfun/lensfun`, `data/db`), runs in the background, shows in the activity stack and can be
-  cancelled. Nothing about your photos is sent. The files go to `<settings>/lensfun` (macOS:
-  `~/Library/Application Support/LightCraft/lensfun`), with an `ABOUT.txt` naming their source and licence.
-  Download again to update; a download that fails leaves the installed files alone.
-- **Your own copy:** point `LIGHTCRAFT_LENSFUN_DIR` at a directory of lensfun XML files (a checkout's `data/db`, or
-  what a Linux distribution installs under `/usr/share/lensfun/version_1/`). The variable wins over the settings
-  folder, and the app then offers no download.
-- **From a script:** the engine commands `optics.downloadLensProfiles` and `optics.lensProfilesStatus`, through the
-  control channel's `engine.execute` or MCP. The CLI reads the same settings folder as the app.
+1. Nothing is downloaded without the user's click. On the first launch the desktop app asks once: "Download lens
+   profiles? LightCraft can correct distortion and vignetting for many lenses using the open lens database
+   (lensfun, about N MB)", with **Download** and **Not Now** (N is the pinned files' sizes added up). Not Now (or
+   Esc) downloads nothing and the app doesn't ask again; Settings ▸ General ▸ Lens profiles has **Download Lens
+   Database** and a switch that turns the offer back on. The answer is kept with the app's settings (`ui.json`,
+   `lensDatabase`: `ask` / `accepted` / `declined`; a value it can't read asks again), and
+   `lensfun_download::fetch_on_start` is the one place that decides. After a yes, a start that finds the database
+   missing or from an older pin downloads it again (an interrupted download resumes).
+   Download fetches lensfun's `data/db` (56 XML files, about 5 MB) into the app's data folder
+   (`<config dir>/lensfun`, beside the face and denoise models; see `crates/engine/src/config.rs`), with a row in
+   the activity stack (its ✕ stops it). The files are pinned to one lensfun commit by name,
+   size and SHA-256 (`crates/engine/src/lensfun_download.rs`); a file that differs is thrown away. A later build with
+   a newer pin replaces them once. The files are staged in `<config dir>/lensfun.download`, `SOURCE.txt` (the commit
+   and the licence) is written there last, and the staged folder then replaces the old one as a whole: until it is
+   in place the previous complete database is used, and if the swap fails it is put back. The app's folder is read
+   only when it has `SOURCE.txt`, and a folder whose pinned files are missing or cut short is downloaded again.
+   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never ask and never
+   fetch on their own; `lens.downloadDatabase` fetches it on request from any of them.
+2. By default the files come from lensfun's GitHub repository at the pinned commit. `LIGHTCRAFT_LENSFUN_URL` lists
+   other places serving the same files (base URLs, tried first), e.g. a copy on LightCraft's own server.
+3. `LIGHTCRAFT_LENSFUN_DIR` points at a database of your own instead (lensfun's `data/db`, or a Linux
+   distribution's `/usr/share/lensfun/version_1/`); then the app doesn't offer the download, and that folder is read
+   even after `lens.downloadDatabase` fetches the app's own copy.
 
-Invalid files are skipped with a warning in the log. Without a database nothing changes.
+When the database arrives (or changes), every library raw without a profile whose lens it knows is read again in the
+background and gets its profile; a photo still as imported gets the correction switched on, as import would, and an
+edited one keeps its settings. When a download replaced the database's files, the raws whose profile came from the
+old database are read again too (they get the new profile, or lose one it no longer gives), and so are raws whose
+file named no lens at import. Ticking **Enable Lens Corrections** on a photo without a profile looks it up again
+too. `library.refreshLensProfiles` (`all: true` for the wider pass), `lens.downloadDatabase` (which also selects the
+downloaded folder) and `lens.databaseStatus` do the same for agents.
 
-## Photos already in the library
+A database profile is pinned to the photo: every render (fresh decode, cached preview, thumbnail, export) uses the
+profile the catalog holds, never one a decode looked up in a newer database, and the profile is part of the render
+and thumbnail cache keys, so a changed profile never shows an old cached render. A file's own correction comes from
+the file as before.
 
-A photo gets its lens data when it is imported. For raws catalogued before the database was there:
+The Optics panel says which profile is loaded: "Profile: from the file", "Profile: <lens> (lens database)", or
+"No lens profile found for <lens>". A profile is never copied between photos: presets, Copy / Paste, Sync and Auto
+Sync carry Enable Lens Corrections and its amounts, and each photo keeps the profile of its own lens
+(`crates/engine/src/tests/lens_refresh.rs`).
 
-- When a download finishes, and whenever a library is opened with the database installed, the files of raws without
-  lens data **whose lens the database names** are read in the background (activity stack, cancellable) and gain
-  their profile. Raws the database can't help are not read again at every start.
-- A raw opened in Develop is looked up once more on its own, so the panel's "no profile for this lens" is said only
-  after its file was read; and any decode that finds lens data records it.
-- As at import, **Enable Lens Corrections is switched on** for photos still at their import settings. A photo you
-  have edited only gains the data: its switch stays as you left it. This is bookkeeping, not an undo step; untick
-  the switch (and sync it to other photos) to turn the correction off.
-- Photo ▸ Reload from Disk does the same for the selected photos.
-
-Under the switch the panel names the lens and what its data corrects (distortion, colour fringing, vignetting).
-An amount slider with nothing to scale is greyed out: many zooms in the database have distortion data only.
+Files are read once per folder and again after a download. Invalid files are skipped with a warning in the log.
+Each read logs the folder, whether it is the download or `LIGHTCRAFT_LENSFUN_DIR`, and how many lenses and cameras
+it holds; a folder that is missing or holds no lenses is logged as a warning (#2511). The app's own folder before a
+download has finished is not read, and says so at info level, since that is the state before the first download.
 
 ## What is applied
 
 The lens is identified from EXIF: camera make / model (for the mount and crop factor; the 35 mm equivalent focal
-length is used when the camera isn't listed) and the lens model string. Lens names match on their words; every
+length is used when the camera isn't listed or its crop factor is unknown) and the lens model string. Lens names match on their words; every
 number (focal lengths, apertures) in the database name must appear in the EXIF name, and the lens maker must agree
 when the file names one.
+
+Some cameras record no lens model at all, only the lens specification: Nikon DSLRs write the lens's focal range and
+maximum apertures in their maker note (tag `0x0084`) and no Exif `LensModel`, whatever lens is mounted. For such a
+file the lens is looked up by a name built from the specification, `24-70mm f/2.8` (`18-55mm f/3.5-5.6`,
+`85mm f/1.8`), and a profile is used only when one of its names is exactly that (ignoring case and punctuation).
+The specification fits every maker's lens with that range (a Nikkor, a Sigma, a Tamron), so neither a partial match
+nor a name with a maker in it ("Samyang 85mm f/1.4" for "85mm f/1.4") is taken; a database that should correct such
+files names its profile that way, e.g. a lensfun entry with an extra `<model>24-70mm f/2.8</model>` for the one
+24-70 f/2.8 the photographer owns. lensfun's own database has no such names, so it doesn't correct these files.
 
 | Correction | Models | Interpolated over |
 |---|---|---|
@@ -55,37 +78,23 @@ when the file names one.
 
 Fisheye and other non-rectilinear lenses get no distortion correction. The profile is converted by least squares
 into the DNG `WarpRectilinear` / `FixVignetteRadial` polynomials, so it goes through the same path as embedded
-corrections: **Enable Lens Corrections** and its Distortion / Vignetting amounts, the CPU and GPU geometry
+corrections: **Enable Profile Corrections** and its Distortion / Vignetting amounts, the CPU and GPU geometry
 stage (one resample), orientation handling and DNG export. A conversion whose radial error exceeds 0.001 of the
 half diagonal, or that would fold the image, is not applied.
 
 Normalisation follows lensfun's documentation: distortion and TCA radii are 1 at half the shorter side of the
 calibration frame (its `cropfactor` and `aspect-ratio`), vignetting radii 1 at its corner; the optical centre is
-the image centre (lensfun's `<center>` offsets are not read).
-
-**The corrected image fills the frame.** The database's distortion models keep the scale at their own reference
-radius, not at the edge of the frame the photo was taken on, so a correction applied as it stands leaves blank
-canvas along the edges it pulls inward (a full-frame zoom's wide end on an APS-C body: a border about 20 px wide at
-18 MP) or crops pixels the lens recorded. The corrected image is therefore zoomed about its centre until an edge
-point just reaches the recorded frame: in for the first case, out for the second. The zoom is part of the warp, so
-the Distortion amount scales it with the correction (above 100 % an edge can show blank canvas again).
+the image centre (lensfun's `<center>` offsets are not read). Missing or invalid crop factors remain unknown;
+only finite values from 0.05 through 20 are accepted. A calibration inherits the lens's crop factor only when its
+`cropfactor` attribute is omitted; an explicit invalid override remains unknown. Profiles with an unknown
+calibration crop factor are not applied. An explicit crop factor of 1 still means full frame.
+On exact lookup-score ties, both named and built-in fixed-lens matching prefer a known calibration crop; a higher
+match score still wins even when its crop is unknown.
 
 ## Limits
 
 - Only raws: rendered images (JPEG, HEIF, TIFF) are often already corrected in camera.
 - The focus distance is not read from maker notes yet: vignetting uses the farthest calibrated distance.
-- No manual make / model picker yet; matching is automatic.
-- The database's file list is fixed in the app (`crates/engine/src/cmd/lens_profiles.rs`, as of 2026-10-13): a file
-  the lensfun project adds later is not fetched until it is named there; one it drops is skipped.
-- Checked on real photos only this far: 20 Canon EOS Rebel T5 frames with the EF 28-135mm f/3.5-5.6 IS USM (the
-  database has distortion data only for it) are matched, corrected and fill the frame at every focal length shot.
-  The size and direction of the correction have **not** been compared with another renderer or a test chart; the
-  tests use synthetic profiles and grids.
-
-## Revision history
-
-| Date | Change | Summary |
-|---|---|---|
-| 2026-10-13 | minor | LENS.3: the Lens Corrections note names the lens and what is corrected, and offers the download; a library opened with the database installed is caught up in the background |
-| 2026-10-13 | minor | LENS.2: the database is read from `<settings>/lensfun`; `optics.downloadLensProfiles`, `optics.lensProfilesStatus`, `optics.findLensProfiles`; a decode records lens data the catalog lacks |
-| 2026-10-13 | patch | LENS.1: corrected images are zoomed to fill the frame |
+- No manual make / model picker and no choice between sources (in the file, lens database, an own calibration)
+  yet; matching is automatic, the file's own correction wins.
+- Not yet validated against real photos and another renderer; the tests use synthetic profiles and grids.

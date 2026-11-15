@@ -29,7 +29,7 @@ pub(super) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let scale = (fit.width() / w).min(fit.height() / h);
         let frame = Rect::from_center_size(fit.center(), vec2(w * scale, h * scale));
         ui.painter().image(tex.tex.id(), frame, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-        register(ui.ctx(), "classicNavigator", frame);
+        register(ui, "classicNavigator", frame);
         // the part of the photo in the loupe: its canvas and image rectangles are last frame's, which is this
         // frame's too unless the view is changing
         let loupe = match (app.ui.view, app.canvas_rect, app.image_rect) {
@@ -48,7 +48,7 @@ pub(super) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let p = ui.painter_at(area);
             p.rect_stroke(view, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
             p.rect_stroke(view.expand(1.5), 0.0, Stroke::new(1.0, Color32::from_black_alpha(160)), StrokeKind::Outside);
-            let resp = ui.interact(frame, egui::Id::new("classic-navigator"), Sense::click_and_drag());
+            let resp = ui.interact(frame, egui::Id::unique("classic-navigator"), Sense::click_and_drag());
             if (resp.clicked() || resp.dragged())
                 && let Some(q) = resp.interact_pointer_pos()
             {

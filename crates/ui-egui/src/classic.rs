@@ -101,11 +101,12 @@ pub enum DevelopPanel {
     LensCorrections,
     Transform,
     Effects,
+    LensBlur,
     Calibration,
 }
 
 impl DevelopPanel {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Basic,
         Self::ToneCurve,
         Self::Hsl,
@@ -114,6 +115,7 @@ impl DevelopPanel {
         Self::LensCorrections,
         Self::Transform,
         Self::Effects,
+        Self::LensBlur,
         Self::Calibration,
     ];
 
@@ -128,6 +130,7 @@ impl DevelopPanel {
             Self::LensCorrections => "lensCorrections",
             Self::Transform => "transform",
             Self::Effects => "effects",
+            Self::LensBlur => "lensBlur",
             Self::Calibration => "calibration",
         }
     }
@@ -142,6 +145,7 @@ impl DevelopPanel {
             Self::LensCorrections => "Lens Corrections",
             Self::Transform => "Transform",
             Self::Effects => "Effects",
+            Self::LensBlur => "Lens Blur",
             Self::Calibration => "Calibration",
         }
     }
@@ -159,6 +163,7 @@ impl DevelopPanel {
             Self::LensCorrections => "optics",
             Self::Transform => "transform",
             Self::Effects => "effects",
+            Self::LensBlur => "lensBlur",
             Self::Calibration => "calibration",
         }
     }
@@ -174,6 +179,7 @@ impl DevelopPanel {
             Self::LensCorrections => &["optics"],
             Self::Transform => &["geometry"],
             Self::Effects => &["effects"],
+            Self::LensBlur => &["lensBlur"],
             Self::Calibration => &["calibration"],
         }
     }
@@ -491,10 +497,10 @@ pub(crate) fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "module.print" => Module::Print,
         "view.interface" => return Some(interface(app, p)),
         "view.classicPanel" => return Some(panel_command(app, p)),
-        "print.set" => return Some(print::set(app, p)),
+        "classicPrint.set" => return Some(print::set(app, p)),
         // from the menu or its key, outside Print: go there first, to see the page that would be written
-        "print.export" if app.ui.classic.module != Module::Print && p.as_object().is_none_or(|o| o.is_empty()) => Module::Print,
-        "print.export" => return Some(print::export(app, p)),
+        "classicPrint.export" if app.ui.classic.module != Module::Print && p.as_object().is_none_or(|o| o.is_empty()) => Module::Print,
+        "classicPrint.export" => return Some(print::export(app, p)),
         _ => return None,
     };
     if let Err(e) = enter(app, module) {

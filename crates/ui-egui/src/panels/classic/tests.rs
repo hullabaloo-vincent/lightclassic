@@ -196,7 +196,7 @@ fn unique(mut ids: Vec<String>) -> Vec<String> {
 fn open_everything(h: &mut Headless) {
     exec(h, "develop.hdr", json!({"enabled": true}));
     h.app.ui.histogram = true;
-    h.app.ui.open_sections = ["light", "color", "effects", "detail", "optics", "calibration"].map(String::from).to_vec();
+    h.app.ui.open_sections = ["light", "color", "effects", "detail", "optics", "lensBlur", "calibration"].map(String::from).to_vec();
     for panel in DevelopPanel::ALL {
         if !h.app.ui.section_open(panel.open_id()) {
             h.app.ui.open_sections.push(panel.open_id().to_string());
@@ -215,7 +215,7 @@ fn develop_has_classics_panels_in_classics_order() {
     let tools = rect(&h, "icon:crop");
     assert!(histogram.bottom() <= tools.top() + 0.5, "the tools {tools:?} are under the histogram's header {histogram:?}");
     let mut above = tools.bottom() - 0.5;
-    let order = ["basic", "toneCurve", "hsl", "colorGrading", "detail", "lensCorrections", "transform", "effects", "calibration"];
+    let order = ["basic", "toneCurve", "hsl", "colorGrading", "detail", "lensCorrections", "transform", "effects", "lensBlur", "calibration"];
     assert_eq!(DevelopPanel::ALL.map(DevelopPanel::id), order);
     for id in order {
         let r = rect(&h, &format!("classicPanel:{id}"));
@@ -541,8 +541,9 @@ fn the_classic_top_bar_has_no_cloud_or_chat_icon() {
         help.right() > SIZE[0] - 40.0 && share.right() <= help.left() + 12.5 && bell.right() <= share.left() + 12.5,
         "{help:?} {share:?} {bell:?}"
     );
+    // (upstream's Modern top bar shows the cloud only as a failing save's warning too)
     let modern = frame(false);
-    assert!(widget(&modern, "icon:cloud").is_some() && widget(&modern, "icon:discord").is_some(), "the Modern top bar keeps both");
+    assert!(widget(&modern, "icon:discord").is_some(), "the Modern top bar keeps the community link");
 }
 
 // ------------------------------------------------------------------------------------ Print
@@ -594,7 +595,7 @@ fn print_shows_the_page_with_the_photo_where_the_layout_puts_it() {
     assert!(widget(&h, "panel:filmstrip").is_some() && widget(&h, "sidebarTitle").is_some(), "the filmstrip and the sources, to choose photos");
 
     // a wide page, and the photo a quarter of the way across it at half the size
-    let page = exec(&mut h, "print.set", json!({"shape": "16x9", "longEdge": 4000, "size": 0.5, "x": 0.25}));
+    let page = exec(&mut h, "classicPrint.set", json!({"shape": "16x9", "longEdge": 4000, "size": 0.5, "x": 0.25}));
     assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(4000), Some(2250)));
     assert_eq!(h.app.ui.classic.print.shape(), Some("16x9"));
     let drawn = rect(&h, "printPage");
@@ -602,7 +603,7 @@ fn print_shows_the_page_with_the_photo_where_the_layout_puts_it() {
     let (x, y, share) = on_page(&h);
     assert!((x - 0.25).abs() < 0.005 && (y - 0.5).abs() < 0.005 && (share - 0.5).abs() < 0.01, "at {x} {y}, {share} of the page");
     // the long edge alone keeps the shape; the background has names
-    let page = exec(&mut h, "print.set", json!({"longEdge": 2000, "background": "black"}));
+    let page = exec(&mut h, "classicPrint.set", json!({"longEdge": 2000, "background": "black"}));
     assert_eq!((page["canvas"]["width"].as_u64(), page["canvas"]["height"].as_u64()), (Some(2000), Some(1125)));
     assert_eq!(h.app.ui.classic.print.canvas.background, [0, 0, 0]);
 
@@ -625,7 +626,7 @@ fn print_shows_the_page_with_the_photo_where_the_layout_puts_it() {
 #[test]
 fn dragging_the_photo_moves_it_and_keeps_it_on_the_page() {
     let mut h = printing();
-    exec(&mut h, "print.set", json!({"size": 0.4}));
+    exec(&mut h, "classicPrint.set", json!({"size": 0.4}));
     let drag = |h: &mut Headless, dx: f32, dy: f32| {
         let r = h.request("ui.dragWidget", json!({"id": "printPhoto", "dx": dx, "dy": dy, "steps": 8}), T);
         assert_eq!(r["ok"], true, "{r}");
@@ -646,7 +647,7 @@ fn dragging_the_photo_moves_it_and_keeps_it_on_the_page() {
         "it rests in the corner: {photo:?} on {page:?}"
     );
     // near the middle it catches on the centre lines
-    exec(&mut h, "print.set", json!({"x": 0.506, "y": 0.494}));
+    exec(&mut h, "classicPrint.set", json!({"x": 0.506, "y": 0.494}));
     drag(&mut h, 1.0, 0.0);
     let caught = h.app.ui.classic.print.canvas;
     assert_eq!((caught.x, caught.y), (0.5, 0.5), "a photo let go near the middle is in the middle");
@@ -670,16 +671,16 @@ fn print_settings_are_checked_and_print_is_a_classic_module() {
         json!({"size": 0.5, "y": "low"}),
     ];
     for params in bad {
-        let r = h.request("engine.execute", json!({"command": "print.set", "params": params.clone()}), T);
+        let r = h.request("engine.execute", json!({"command": "classicPrint.set", "params": params.clone()}), T);
         assert_eq!(r["ok"], false, "{params} is refused: {r}");
         assert_eq!(h.app.ui.classic.print, PrintLayout::default(), "{params}: refused, yet something changed");
     }
     for params in [json!({"dir": 3}), json!({"folder": "/tmp"})] {
-        let r = h.request("engine.execute", json!({"command": "print.export", "params": params.clone()}), T);
+        let r = h.request("engine.execute", json!({"command": "classicPrint.export", "params": params.clone()}), T);
         assert_eq!(r["ok"], false, "{params} is refused: {r}");
     }
     // the layout is saved with the other settings
-    exec(&mut h, "print.set", json!({"shape": "4x5", "size": 0.7, "format": "png"}));
+    exec(&mut h, "classicPrint.set", json!({"shape": "4x5", "size": 0.7, "format": "png"}));
     let saved = serde_json::to_value(&h.app.ui).expect("the state serializes");
     let loaded: crate::UiState = serde_json::from_value(saved).expect("and loads");
     assert_eq!(loaded.classic.print, h.app.ui.classic.print);
@@ -702,10 +703,10 @@ fn print_to_file_writes_the_page_with_the_photo_on_it() {
         Ok(())
     }));
     app.run("module.print", json!({})).expect("Print opens");
-    app.run("print.set", json!({"width": 400, "height": 300, "size": 0.5, "x": 0.5, "y": 0.5, "background": "grey", "format": "png"}))
+    app.run("classicPrint.set", json!({"width": 400, "height": 300, "size": 0.5, "x": 0.5, "y": 0.5, "background": "grey", "format": "png"}))
         .expect("the page is set");
     let dir = std::env::temp_dir().join("lc-print-test").to_string_lossy().into_owned();
-    let out = app.run("print.export", json!({"dir": dir, "background": false})).expect("prints");
+    let out = app.run("classicPrint.export", json!({"dir": dir, "background": false})).expect("prints");
     assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
     assert_eq!(app.ui.classic.print.dir, dir, "the folder is remembered for Print");
     assert!(app.session.last_export.is_none(), "Print left its page in the Export dialog's last settings");
