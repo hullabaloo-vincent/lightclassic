@@ -60,6 +60,10 @@ pub enum Overlay {
     /// Clipping warnings (J): the photo with every pixel that has a channel at 255 painted
     /// [`CLIP_HIGH`] and every other pixel with a channel at 0 painted [`CLIP_LOW`].
     ClipWarnings,
+    /// [`Overlay::ClipWarnings`] for the shadows alone (a Classic histogram triangle).
+    ClipWarningsShadows,
+    /// [`Overlay::ClipWarnings`] for the highlights alone (a Classic histogram triangle).
+    ClipWarningsHighlights,
 }
 
 /// [`Overlay::ClipWarnings`] colour of clipped highlights.
@@ -157,6 +161,8 @@ impl Overlay {
             Overlay::SharpenDetail => (9, 0.0),
             Overlay::SharpenMask => (10, 0.0),
             Overlay::ClipWarnings => (11, 0.0),
+            Overlay::ClipWarningsShadows => (12, 0.0),
+            Overlay::ClipWarningsHighlights => (13, 0.0),
         }
     }
 
@@ -181,6 +187,8 @@ impl Overlay {
             9 => Overlay::SharpenDetail,
             10 => Overlay::SharpenMask,
             11 => Overlay::ClipWarnings,
+            12 => Overlay::ClipWarningsShadows,
+            13 => Overlay::ClipWarningsHighlights,
             _ => Overlay::None,
         }
     }
@@ -200,6 +208,8 @@ impl Overlay {
             Overlay::SharpenDetail => 0x5003,
             Overlay::SharpenMask => 0x5004,
             Overlay::ClipWarnings => 0x5005,
+            Overlay::ClipWarningsShadows => 0x5006,
+            Overlay::ClipWarningsHighlights => 0x5007,
         }
     }
 
@@ -219,7 +229,10 @@ impl Overlay {
     /// The clipping previews, which test the sRGB values the histogram counts (a render for a
     /// display profile draws them in sRGB, then converts).
     pub fn is_clipping(self) -> bool {
-        matches!(self, Overlay::ClipShadows | Overlay::ClipHighlights | Overlay::ClipWarnings)
+        matches!(
+            self,
+            Overlay::ClipShadows | Overlay::ClipHighlights | Overlay::ClipWarnings | Overlay::ClipWarningsShadows | Overlay::ClipWarningsHighlights
+        )
     }
 
     /// Whether the overlay draws from the render's detail planes ([`sharpen_plane`]).
@@ -232,7 +245,14 @@ impl Overlay {
     pub fn per_pixel(self) -> bool {
         matches!(
             self,
-            Overlay::None | Overlay::Mask { .. } | Overlay::ClipShadows | Overlay::ClipHighlights | Overlay::ClipWarnings | Overlay::Grayscale
+            Overlay::None
+                | Overlay::Mask { .. }
+                | Overlay::ClipShadows
+                | Overlay::ClipHighlights
+                | Overlay::ClipWarnings
+                | Overlay::ClipWarningsShadows
+                | Overlay::ClipWarningsHighlights
+                | Overlay::Grayscale
         )
     }
 
@@ -325,6 +345,8 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, plane: Option<&Plane>
         Overlay::ClipShadows => clipping(img, false),
         Overlay::ClipHighlights => clipping(img, true),
         Overlay::ClipWarnings => clip_warnings(img),
+        Overlay::ClipWarningsShadows => clip_warnings_sides(img, true, false),
+        Overlay::ClipWarningsHighlights => clip_warnings_sides(img, false, true),
         Overlay::Grayscale => grayscale(img),
         Overlay::SharpenDetail | Overlay::SharpenMask => {
             if let Some(p) = plane.filter(|a| (a.width, a.height) == (img.width, img.height)) {
@@ -380,13 +402,21 @@ pub fn clipping(img: &mut Rgba8, high: bool) {
 /// [`Overlay::ClipWarnings`]: pixels with a channel at 255 in [`CLIP_HIGH`], the rest with a
 /// channel at 0 in [`CLIP_LOW`], everything else unchanged.
 pub fn clip_warnings(img: &mut Rgba8) {
+    clip_warnings_sides(img, true, true);
+}
+
+/// [`clip_warnings`] for the shadows (`low`), the highlights (`high`) or both.
+pub fn clip_warnings_sides(img: &mut Rgba8, low: bool, high: bool) {
     let w = img.width;
     for_rows(&mut img.data, w, |_, row| {
         for px in row.iter_mut() {
             let c = &px[..3];
             let paint = if c.contains(&255) {
+                if !high {
+                    continue;
+                }
                 CLIP_HIGH
-            } else if c.contains(&0) {
+            } else if low && c.contains(&0) {
                 CLIP_LOW
             } else {
                 continue;
@@ -766,6 +796,24 @@ mod tests {
         super::clip_warnings(&mut img);
         let rgb: Vec<[u8; 3]> = img.data.iter().map(|p| [p[0], p[1], p[2]]).collect();
         assert_eq!(rgb, [super::CLIP_HIGH, super::CLIP_LOW, [128, 128, 128], super::CLIP_HIGH, super::CLIP_LOW]);
+    }
+
+    /// One side alone paints only its own pixels; a highlight pixel never turns blue when only shadows show.
+    #[test]
+    fn one_sided_clip_warnings_paint_their_side_only() {
+        let data = vec![[255, 255, 255, 255], [0, 0, 0, 255], [128, 128, 128, 255], [255, 40, 0, 255], [10, 0, 30, 255]];
+        let rgb = |low, high| {
+            let mut img = Rgba8 { width: 5, height: 1, data: data.clone() };
+            super::clip_warnings_sides(&mut img, low, high);
+            img.data.iter().map(|p| [p[0], p[1], p[2]]).collect::<Vec<[u8; 3]>>()
+        };
+        assert_eq!(rgb(true, false), [[255, 255, 255], super::CLIP_LOW, [128, 128, 128], [255, 40, 0], super::CLIP_LOW]);
+        assert_eq!(rgb(false, true), [super::CLIP_HIGH, [0, 0, 0], [128, 128, 128], super::CLIP_HIGH, [10, 0, 30]]);
+        for o in [Overlay::ClipWarningsShadows, Overlay::ClipWarningsHighlights] {
+            let (k, v) = o.to_parts();
+            assert_eq!(Overlay::from_parts(k, v), o);
+            assert!(o.is_clipping() && o.per_pixel());
+        }
     }
 
     #[test]

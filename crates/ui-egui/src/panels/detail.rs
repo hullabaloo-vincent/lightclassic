@@ -1205,6 +1205,9 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::HdrRange;
     }
     // Clipping warnings (J): clipped highlights red, clipped shadows blue, on the photo itself
+    if let Some(one_side) = crate::classic::clipping::overlay(&app.ui) {
+        return one_side;
+    }
     if app.ui.show_clipping {
         return Overlay::ClipWarnings;
     }

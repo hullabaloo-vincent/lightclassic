@@ -141,23 +141,33 @@ pub(crate) fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId)
     // both buttons keep clear of the panel's right edge, where its floating scroll bar widens when
     // hovered beside the sliders, the left one too so they stay symmetric (#1640)
     let [shadow_rect, highlight_rect] = crate::panels::histogram::clipping_rects(ui, plot);
+    // this fork: Classic's triangles, one side each (`crate::classic::clipping`)
+    let classic = crate::classic::active(app);
+    let mut side_clicked = None;
     for (name, rect, label, clipped) in [
         ("shadows", shadow_rect, "Shadow clipping", clipping.map(|(lo, _)| lo > 0.003)),
         ("highlights", highlight_rect, "Highlight clipping", clipping.map(|(_, hi)| hi > 0.003)),
     ] {
         let response = ui.interact(rect, ui.scope_id().with(("histogram-clipping", name)), Sense::click());
         register(ui, format!("histogram:{name}"), rect);
-        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), app.ui.show_clipping, crate::i18n::tr(label)));
-        clicked |= response.clicked();
-        let active = app.ui.show_clipping;
-        // Keep the hit target comfortable, with a smaller box and clear space to the plot edges.
-        let box_rect = rect.shrink2(vec2(2.0, 2.0));
-        let (tile, mark) = clip_button_colors(&t, active, response.hovered(), clipped == Some(true));
-        p.rect_filled(box_rect, 3.0, tile);
-        if active {
-            p.rect_stroke(box_rect, 3.0, Stroke::new(1.0, t.text), egui::StrokeKind::Inside);
+        let active = if classic { crate::classic::clipping::side_on(&app.ui, name) } else { app.ui.show_clipping };
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, crate::i18n::tr(label)));
+        if classic {
+            if response.clicked() {
+                side_clicked = Some(name);
+            }
+            crate::classic::clipping::paint(p, rect, &t, active, response.hovered(), clipped == Some(true));
+        } else {
+            clicked |= response.clicked();
+            // Keep the hit target comfortable, with a smaller box and clear space to the plot edges.
+            let box_rect = rect.shrink2(vec2(2.0, 2.0));
+            let (tile, mark) = clip_button_colors(&t, active, response.hovered(), clipped == Some(true));
+            p.rect_filled(box_rect, 3.0, tile);
+            if active {
+                p.rect_stroke(box_rect, 3.0, Stroke::new(1.0, t.text), egui::StrokeKind::Inside);
+            }
+            paint(p, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)), Icon::ChevronDown, mark);
         }
-        paint(p, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)), Icon::ChevronDown, mark);
         let status = match clipped {
             Some(true) => "Clipping detected in this preview.",
             Some(false) => "No clipping detected in this preview.",
@@ -166,16 +176,22 @@ pub(crate) fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId)
         response.on_hover_text(format!(
             "{}\n{}\n{}",
             crate::i18n::tr(label),
-            crate::i18n::tr(if active {
-                "Click to hide clipping warnings for shadows and highlights."
-            } else {
-                "Click to show clipping warnings for shadows and highlights."
+            crate::i18n::tr(match (classic, name == "shadows", active) {
+                (true, true, true) => "Click to hide clipped shadows (blue). J shows or hides both sides.",
+                (true, true, false) => "Click to show clipped shadows in blue. J shows or hides both sides.",
+                (true, false, true) => "Click to hide clipped highlights (red). J shows or hides both sides.",
+                (true, false, false) => "Click to show clipped highlights in red. J shows or hides both sides.",
+                (false, _, true) => "Click to hide clipping warnings for shadows and highlights.",
+                (false, _, false) => "Click to show clipping warnings for shadows and highlights.",
             }),
             crate::i18n::tr(status)
         ));
     }
     if clicked {
         let _ = app.run("view.clipping", json!({}));
+    }
+    if let Some(side) = side_clicked {
+        let _ = app.run("view.clippingSide", json!({"side": side}));
     }
     // the tonal zone the pointer is on replaces the EXIF strip while it is there
     if let Some(text) = zone.as_ref().and_then(|a| a.readout()) {

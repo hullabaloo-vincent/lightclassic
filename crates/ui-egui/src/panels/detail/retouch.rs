@@ -21,6 +21,8 @@ pub(super) fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &
     }
     // (spot, is source, screen centre, radius) of everything that can be grabbed
     let mut grips: Vec<(usize, bool, Pos2, f32)> = Vec::new();
+    // this fork: Classic outlines a brushed spot as one stroke (`crate::classic::spot_outline`)
+    let stroke_outline = crate::classic::active(app);
     for (i, s) in d.spots.iter().enumerate() {
         let r = (s.size * long) as f32;
         let sel = Some(i) == active;
@@ -29,15 +31,25 @@ pub(super) fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &
         }
         let p = &pins;
         let col = Color32::from_white_alpha(if sel { 230 } else { 150 });
-        for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+        if stroke_outline && s.points.len() > 1 {
+            let dabs: Vec<Pos2> = s.points.iter().map(|q| map.screen(*q)).collect();
+            crate::classic::spot_outline::draw(p, &dabs, r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+        } else {
+            for q in &s.points {
+                p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+            }
         }
         let Some(&t) = s.points.first() else { continue };
         let tq = map.screen(t);
         if let Some(o) = s.source_offset.filter(|_| sel) {
             let sq = map.screen(Point::new(t.x + o.x, t.y + o.y));
-            for q in &s.points {
-                p.circle_stroke(map.screen(Point::new(q.x + o.x, q.y + o.y)), r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+            if stroke_outline && s.points.len() > 1 {
+                let dabs: Vec<Pos2> = s.points.iter().map(|q| map.screen(Point::new(q.x + o.x, q.y + o.y))).collect();
+                crate::classic::spot_outline::draw(p, &dabs, r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+            } else {
+                for q in &s.points {
+                    p.circle_stroke(map.screen(Point::new(q.x + o.x, q.y + o.y)), r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+                }
             }
             let dir = (tq - sq).normalized();
             p.arrow(sq + dir * r, (tq - sq) - dir * (2.0 * r).min((tq - sq).length()), Stroke::new(1.0, Color32::from_white_alpha(200)));
@@ -114,8 +126,13 @@ pub(super) fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &
         }
     }
     if let Some(Gesture::Spot { points }) = &app.gesture {
-        for q in points {
-            p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
+        if stroke_outline {
+            let dabs: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+            crate::classic::spot_outline::draw_painting(&p, &dabs, r);
+        } else {
+            for q in points {
+                p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
+            }
         }
     }
     if (resp.drag_stopped() || resp.clicked())

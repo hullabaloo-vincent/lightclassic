@@ -69,12 +69,16 @@ order. A tool's button opens its own panel under the row, above the develop pane
 tool away. The profile browser takes the whole column while it is open.
 
 Every control is the Edit panel's own: the same develop control ids, commands and slider widgets (`slider:<id>`), so
-presets, copy and paste, History and scripts see no difference between the styles.
+presets, copy and paste, History and scripts see no difference between the styles. Only their shape is Classic's:
+inside the column every slider is one line, its name set against the track, the value at the right, a pointed thumb
+and faint tick marks (`crates/ui-egui/src/classic/slider.rs`; the shared slider widget asks it and keeps its
+behaviour and widget ids). Under the scroll, **Previous** (`button:previous`, `develop.pastePrevious`) and **Reset**
+(`button:reset`, `develop.reset`) sit side by side, as at the foot of Classic's right column.
 
 | Panel (`classicPanel:<id>`) | Built from |
 |---|---|
-| Histogram (`histogram`) | the Edit panel's histogram (clipping toggles, exposure line); soft proofing under it |
-| Basic (`basic`) | Auto, B&W, HDR, Reset; the profile and its amount; white balance (mode, picker, Temp, Tint); Tone: Exposure, Contrast, Highlights, Shadows, Whites, Blacks (and the HDR sliders); Presence: Texture, Clarity, Dehaze, Vibrance, Saturation |
+| Histogram (`histogram`) | the Edit panel's histogram (exposure line), with Classic's clipping triangles (`histogram:shadows`, `histogram:highlights`): each shows its own side's clipping on the photo (shadows blue, highlights red; `view.clippingSide`), is boxed while it does and bright while that side clips; J shows or hides both. Soft proofing under it |
+| Basic (`basic`) | Treatment: Color \| Black & White (`button:treatment-color`, `button:treatment-bw`); Profile and its amount, the profile browser; the WB eyedropper, WB mode, Temp, Tint; Tone with Auto and HDR at its right: Exposure, Contrast \| Highlights, Shadows, Whites, Blacks (and the HDR sliders); Presence: Texture, Clarity, Dehaze \| Vibrance, Saturation |
 | Tone Curve (`toneCurve`) | the curve editor: point curves per channel, the parametric sliders, targeted adjustment |
 | HSL / Color (`hsl`), **B&W** in black and white | every colour at once (Red … Magenta) for one attribute, chosen by `button:hslView-hue` / `-sat` / `-lum`, or all three (`-all`); the targeted adjustment tool; Point Color under them. For a black-and-white photo the panel is titled B&W and holds the eight colours' share of the grey mix (`bw.*`), with Auto |
 | Color Grading (`colorGrading`) | the wheels, Blending and Balance |
@@ -94,6 +98,11 @@ presets, copy and paste, History and scripts see no difference between the style
   panels share a develop section with a neighbour (Texture, Clarity and Dehaze belong to Effects in the pipeline and
   to Basic on screen), so a switch there would silently turn off part of another panel; they show one only to turn
   back on a section that was switched off in the Modern Edit panel.
+
+**Remove.** A brushed spot (heal, clone or remove painted as a stroke, and every spot a Lightroom catalog brings
+with a brush) is drawn as the outline of the whole stroke, its source as a dimmer copy of it, and the stroke being
+painted as a light band with its outline, where the Modern style draws a ring for every dab
+(`crates/ui-egui/src/classic/spot_outline.rs`, a hook in `panels/detail/retouch.rs`).
 
 ## Develop's left column
 
@@ -153,6 +162,7 @@ It exists only in the Classic style; `module.print` says so in the Modern one.
 | `classicPrint.set {shape?, longEdge?, width?, height?, background?, size?, x?, y?, format?, quality?, dir?}` | — | — | Change the page: `shape` is a key of the list above (`1x1`, `4x5`, `5x4`, `2x3`, `3x2`, `9x16`, `16x9`, `a4`, `a4wide`), sizes are pixels, `size` 0.02..1, `x` / `y` 0..1, `background` a name (`white`, `light`, `grey`, `black`) or `[r, g, b]`, `format` `jpeg` / `png` / `tiff`. Nothing changes unless all of it can be applied |
 | `classicPrint.export {dir?, path?, ids?, background?}` | ⌘⌥P | File (Print Page to File…) | Write the page for each selected photo. From the menu outside Print it opens Print first |
 | `view.interface {style?}` | — | View (checkable) | `classic` or `modern`; without `style`, the other one |
+| `view.clippingSide {side, on?}` | — | — | Show or hide one side's clipping warnings on the photo, `shadows` or `highlights` (the histogram's triangles); without `on`, the other state. Both on is the same as J (`view.clipping`) |
 | `view.classicPanel {panel, open?}` | — | — | Fold or unfold a Develop panel: on the right `histogram`, `basic`, `toneCurve`, `hsl`, `colorGrading`, `detail`, `lensCorrections`, `transform`, `effects`, `calibration`; on the left `navigator`, `presets`, `snapshots`, `history`. Without `open`, the other state |
 
 They run from menus, keys, the control channel (`engine.execute`) and MCP (`--connect`), like every UI command.
@@ -245,6 +255,7 @@ Classic header (`PRESETS_TITLE_H` in `develop_left.rs`). If upstream changes tha
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-15 | minor | CLASSIC.7: one-line sliders across the Develop column; Basic laid out as Classic's (Treatment, Profile, WB with its eyedropper, Tone with Auto); Previous / Reset under the panels; the histogram's clipping triangles show their state and work one side each (`view.clippingSide`); brushed spots drawn as one stroke outline |
 | 2026-11-15 | minor | Upstream merged (3,082 commits): the fork's lens profiles, Canon colour-space read and Show Clipping give way to upstream's; a Lens Blur panel in Develop; the Print module's commands are `classicPrint.set` / `classicPrint.export` (⌘⌥P), since upstream's Print dialog has `print.set` and ⌘P; hooks moved with upstream's files |
 | 2026-10-13 | minor | LENS.3: the Lens Corrections panel names the lens and what its profile corrects, or offers the lens database download (the same note in the Modern style's Optics section) |
 | 2026-10-13 | minor | PRINT.2: the Print module (page preview, Layout / Photo / Page / Print Job panels, `module.print`, `classicPrint.set`, `classicPrint.export`) |

@@ -4,6 +4,16 @@
 
 #### 2026-11-15
 
+### Develop looks more like Lightroom Classic
+- Every slider in Develop is one line again, as in Lightroom Classic: the name, the slider and the value side by
+  side, with a pointed handle. More of the panels fit on screen.
+- Basic is laid out as in Classic: Treatment (Color | Black & White), Profile, the white-balance eyedropper with WB,
+  Temp and Tint, then Tone with its Auto button, and Presence. Previous and Reset sit at the bottom of the column.
+- The histogram's two triangles work as in Classic: the left one shows clipped shadows on the photo in blue, the
+  right one clipped highlights in red, each on its own, and each is boxed while it is on. J still shows both.
+- Remove draws a painted spot as the outline of the stroke you painted (and its source as a fainter copy), instead of
+  a ring for every dab of the brush.
+
 ### White balance in Kelvin for the Canon EOS Rebel T5
 - Photos from an EOS Rebel T5 (EOS 1200D, Kiss X70) show their white balance in Kelvin, like Lightroom: As Shot reads
   about 4800 K for daylight and 3300 K under church lights, and Temperature can be set to a value such as 5500 K. The
