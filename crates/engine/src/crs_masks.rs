@@ -277,10 +277,11 @@ fn spot(item: &XmpValue, aspect: f64) -> Result<Value, String> {
     };
     let size = size.clamp(0.001, 0.25);
     // the source is stored as its absolute position (`SourceX`, and `OffsetY` despite the name);
-    // ours is the offset from the target; anything but an explicit source leaves it automatic
-    let explicit = text(item, "crs:SourceState").is_none_or(|s| s == "sourceSetExplicitly");
-    let source_offset = match (explicit, num(item, "crs:SourceX"), num(item, "crs:OffsetY"), points.first()) {
-        (true, Some(sx), Some(sy), Some(p)) => {
+    // ours is the offset from the target. A source Lightroom chose itself (`sourceAutoComputed`) is
+    // stored too, as where it healed from: taking it reproduces the same repair. Without one the
+    // source is left automatic.
+    let source_offset = match (num(item, "crs:SourceX"), num(item, "crs:OffsetY"), points.first()) {
+        (Some(sx), Some(sy), Some(p)) => {
             let (Some(x), Some(y)) = (p["x"].as_f64(), p["y"].as_f64()) else { return Err("spot centre".into()) };
             let (dx, dy) = (sx - x, sy - y);
             (dx.is_finite() && dy.is_finite() && (dx != 0.0 || dy != 0.0)).then(|| pt(dx, dy))

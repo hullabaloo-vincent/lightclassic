@@ -298,6 +298,7 @@ pub fn commit_prepared(s: &mut crate::Session, mut prepared: PreparedLightroom) 
     prepared.normal.revalidate_add(s);
     let options = ImportOptions { mode: ImportMode::Add, on_deleted: crate::import::OnDeleted::Skip, ..ImportOptions::default() };
     let now = prepared.now.clone();
+    let existed: HashSet<lightcraft_catalog::PhotoId> = s.catalog.photos().map(|p| p.id).collect();
     let files = crate::import::commit_prepared(s, &options, &now, prepared.normal)?;
     let applied = lightroom_catalog::apply_prepared(
         s,
@@ -309,6 +310,7 @@ pub fn commit_prepared(s: &mut crate::Session, mut prepared: PreparedLightroom) 
             archive_path: prepared.archive_path,
             missing_sources: &prepared.missing_sources,
             undo0,
+            existed: &existed,
         },
     )?;
     let path = prepared.token.library_dir().map(|dir| dir.join("Interop/lightroom-index.json"));
@@ -521,6 +523,61 @@ mod tests {
         );
         assert_eq!(session.catalog.len(), 5_000);
         std::fs::remove_dir_all(archive_dir).unwrap();
+    }
+
+    /// A file new to the library takes the catalog's edit even when it brings settings of its own. The DNG that
+    /// Lightroom's AI Denoise writes embeds the `crs:` settings of the moment it was written; a black-and-white
+    /// conversion made in the catalog afterwards was dropped, because the file's own settings made the new photo
+    /// look already edited in LightCraft and so kept. A photo that was in the library before the import keeps its
+    /// edit.
+    #[test]
+    fn a_new_file_takes_the_catalogs_edit_over_the_settings_it_brings() {
+        let dir = std::env::temp_dir().join(format!("lightcraft-lr-job-embedded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (new, old) = (dir.join("new.jpg"), dir.join("old.jpg"));
+        for f in [&new, &old] {
+            std::fs::write(f, b"fixture").unwrap();
+        }
+        // what the file says about itself: colour, exposure +0.65
+        std::fs::write(
+            dir.join("new.xmp"),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.65" crs:ConvertToGrayscale="False"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let mut session = crate::Session::new();
+        // `old.jpg` is in the library already, edited here
+        let r = session.execute("library.import", &serde_json::json!({"paths": [old.to_string_lossy()]})).unwrap();
+        let old_id = lightcraft_catalog::PhotoId(r["imported"][0].as_u64().unwrap());
+        let mut personal = lightcraft_develop::DevelopSettings::default();
+        personal.light.exposure = 1.5;
+        session.set_develop(old_id, personal, "Personal").unwrap();
+
+        let photo = |id: i64, path: &std::path::Path| {
+            let mut p = prepared_for(&session, &path.to_string_lossy(), 0).data.photos.remove(0);
+            p.source_id = id;
+            p.uuid = format!("photo-{id}");
+            p.image.insert("id_local".into(), serde_json::json!(id));
+            // what the catalog says: black and white, exposure -0.4
+            p.settings = "s = { ConvertToGrayscale = true, Exposure2012 = -0.4 }".into();
+            p
+        };
+        let mut prepared = prepared_for(&session, &new.to_string_lossy(), 0);
+        prepared.data.photos = vec![photo(1, &new), photo(2, &old)];
+        prepared.missing_sources.clear();
+        let opts = ImportOptions { mode: ImportMode::Add, on_deleted: crate::import::OnDeleted::Skip, ..ImportOptions::default() };
+        let paths = [new.to_string_lossy().to_string(), old.to_string_lossy().to_string()];
+        prepared.normal = ImportJob::new(&mut session, opts).unwrap().prepare(&paths, &AtomicBool::new(false));
+        let report = commit_prepared(&mut session, prepared).unwrap().report;
+
+        let new_id = lightcraft_catalog::PhotoId(report["mapping"]["1"].as_u64().unwrap());
+        let p = session.catalog.photo(new_id).unwrap();
+        assert_eq!(p.develop.treatment, lightcraft_develop::Treatment::Bw, "the catalog's black and white");
+        assert_eq!(p.develop.light.exposure, -0.4, "the catalog's exposure, not the file's");
+        assert!(p.is_edited());
+        assert_eq!(session.catalog.photo(old_id).unwrap().develop.light.exposure, 1.5, "an edit made here is kept");
+        assert_eq!(report["preservedExistingEdits"], 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

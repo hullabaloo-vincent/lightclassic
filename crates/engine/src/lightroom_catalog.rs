@@ -665,9 +665,13 @@ fn apply(s: &mut crate::Session, data: CatalogImport, update_existing: bool) -> 
         .collect();
     let missing_sources: HashSet<String> =
         data.photos.iter().filter(|p| number(&p.image, "masterImage") == 0).filter(|p| !Path::new(&p.path).is_file()).map(|p| key(&p.path)).collect();
+    let existed: HashSet<PhotoId> = s.catalog.photos().map(|p| p.id).collect();
     let files = crate::import::import(s, &paths, crate::import::ImportMode::Add)?;
-    let applied =
-        apply_prepared(s, data, ApplyPrepared { update_existing, files, index: &mut index, archive_path, missing_sources: &missing_sources, undo0 })?;
+    let applied = apply_prepared(
+        s,
+        data,
+        ApplyPrepared { update_existing, files, index: &mut index, archive_path, missing_sources: &missing_sources, undo0, existed: &existed },
+    )?;
     if let Some(path) = index_path {
         s.persist()?;
         let bytes = serde_json::to_vec(&applied.index).map_err(|e| error(e.to_string()))?;
@@ -685,10 +689,14 @@ pub(crate) struct ApplyPrepared<'a> {
     pub(crate) archive_path: Option<PathBuf>,
     pub(crate) missing_sources: &'a HashSet<String>,
     pub(crate) undo0: usize,
+    /// The photos the library held before this import added files: only their edits are kept (a file new to
+    /// the library may arrive with settings of its own, such as the `crs:` XMP a Lightroom-written DNG embeds,
+    /// which the catalog's settings replace).
+    pub(crate) existed: &'a HashSet<PhotoId>,
 }
 
 pub(crate) fn apply_prepared(s: &mut crate::Session, data: CatalogImport, context: ApplyPrepared<'_>) -> crate::Result<AppliedImport> {
-    let ApplyPrepared { update_existing, files, index, archive_path, missing_sources, undo0 } = context;
+    let ApplyPrepared { update_existing, files, index, archive_path, missing_sources, undo0, existed } = context;
     validate(&data).map_err(error)?;
     let mut warnings = data.warnings.clone();
     let duplicates: HashMap<_, _> = files.duplicates.iter().filter_map(|d| d.existing.map(|id| (key(&d.path), PhotoId(id)))).collect();
@@ -755,10 +763,16 @@ pub(crate) fn apply_prepared(s: &mut crate::Session, data: CatalogImport, contex
         };
         ids.insert(src.source_id, p.id);
         index.photos.insert(identity(&data, src), p.id.0);
-        let keep_develop = existing_id.is_some() && p.edited.is_some() && !update_existing;
+        let existed_before = existing_id.is_some_and(|id| existed.contains(&id));
+        let keep_develop = existed_before && p.edited.is_some() && !update_existing;
         let previous_develop = (p.develop.clone(), p.edited.clone());
         if keep_develop {
             preserved += 1;
+        }
+        // the catalog's develop settings are complete: a photo new to the library takes them (and the catalog's
+        // XMP) over what import gave it, not over settings its file brought along
+        if !existed_before && p.copy_of.is_none() && !src.settings.is_empty() {
+            p.develop = Arc::new(p.import_defaults());
         }
         if !src.xmp.is_empty() {
             match crate::sidecar::parse_sidecar(&src.xmp, crate::crs::Target::for_photo(&p)) {
@@ -1165,6 +1179,34 @@ mod tests {
         let g = s.catalog.photos().next().unwrap().develop.crop.geometry;
         let r = [g.rect.x0, g.rect.y0, g.rect.x1, g.rect.y1].map(|v| (v * 1e9).round() / 1e9);
         assert_eq!(r, [0.1, 0.1, 0.8, 0.6]);
+    }
+
+    /// Spot removal stored in a catalog (`RetouchAreas`, nested Lua tables; made-up spots) is carried over, each
+    /// spot healing from the source Lightroom used, also one it chose itself. It was reported unmapped and the
+    /// photo lost its dust spots: only local-correction tables were read from a catalog.
+    #[test]
+    fn catalog_spot_removal_is_imported_with_its_sources() {
+        let text = r#"s = { Exposure2012 = 0.2, RetouchAreas = { { Feather = 0, HealVersion = 2,
+            Masks = { { What = "Mask/Ellipse", X = 0.5, Y = 0.4, SizeX = 0.012, SizeY = 0.012, MaskActive = true } },
+            Method = "gaussian", OffsetY = 0.45, Opacity = 1, SourceState = "sourceAutoComputed", SourceX = 0.47, SpotType = "heal" },
+            { Feather = 0.5, Masks = { { What = "Mask/Ellipse", X = 0.2, Y = 0.7, SizeX = 0.02, SizeY = 0.02 } },
+            OffsetY = 0.7, Opacity = 0.5, SourceState = "sourceSetExplicitly", SourceX = 0.3, SpotType = "clone" } },
+            RetouchInfo = { { centerX = 0.5, centerY = 0.4, radius = 0.012, sourceState = "sourceAutoComputed", sourceX = 0.47, sourceY = 0.45, spotType = "heal" } } }"#;
+        let (partial, unknown) = mapped_settings(text, crate::crs::Target::RawAbsolute, 1.5, Orientation::Normal, 1.5).unwrap();
+        assert!(!unknown.iter().any(|u| u.contains("Retouch")), "{unknown:?}");
+        let spots = partial["spots"].as_array().expect("spots");
+        assert_eq!(spots.len(), 2, "{spots:?}");
+        let off = |i: usize| (spots[i]["source_offset"]["x"].as_f64().unwrap(), spots[i]["source_offset"]["y"].as_f64().unwrap());
+        let (dx, dy) = off(0);
+        assert!((dx + 0.03).abs() < 1e-9 && (dy - 0.05).abs() < 1e-9, "the source Lightroom chose: {dx} {dy}");
+        assert_eq!(spots[0]["mode"], "heal");
+        assert!((spots[0]["size"].as_f64().unwrap() - 0.012).abs() < 1e-9, "a fraction of the width is one of the long edge here");
+        assert_eq!((spots[1]["mode"].as_str(), spots[1]["opacity"].as_f64()), (Some("clone"), Some(50.0)));
+        let (dx, _) = off(1);
+        assert!((dx - 0.1).abs() < 1e-9);
+        let settings: lightcraft_develop::DevelopSettings =
+            serde_json::from_value(serde_json::to_value(lightcraft_develop::apply_partial(&Default::default(), &partial, 1.0)).unwrap()).unwrap();
+        assert_eq!(settings.spots.len(), 2);
     }
 
     #[test]

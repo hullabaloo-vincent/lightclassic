@@ -371,7 +371,8 @@ pub(crate) fn lua_settings_props(settings: &Lua) -> Result<(Props, crate::crs_ma
     let mut values = crate::crs_masks::Values::new();
     for (k, v) in fields {
         let key = format!("crs:{k}");
-        if crate::crs_masks::CONTAINERS.contains(&key.as_str()) {
+        // local corrections and spot removal keep their structure (a catalog stores them as nested tables)
+        if crate::crs_masks::CONTAINERS.contains(&key.as_str()) || crate::crs_masks::SPOT_CONTAINERS.contains(&key.as_str()) {
             values.insert(key.clone(), crate::crs_masks::from_lua(v));
         }
         let vals: Vec<String> = match v {

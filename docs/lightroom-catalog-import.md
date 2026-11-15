@@ -16,9 +16,15 @@ lightcraft-cli run --library "LightCraft Library" library.importLightroom path="
 ```
 
 Original files are referenced in place. Ratings, picks/rejects, color labels, XMP metadata,
-hierarchical keywords, regular collections/collection sets, virtual copies and mapped develop
-settings are imported. Missing originals remain catalogued for relinking. Existing LightCraft
-edits are preserved by default; `updateExisting=true` explicitly replaces them. Persistent import
+hierarchical keywords, regular collections/collection sets, virtual copies, mapped develop
+settings and spot removal (`RetouchAreas`: heal and clone spots, circular or brushed, each healing
+from the source Lightroom used, also one it chose itself) are imported. Missing originals remain
+catalogued for relinking. Edits made in LightCraft to photos that were in the library before the
+import are preserved by default; `updateExisting=true` explicitly replaces them. A file new to the
+library takes the catalog's settings even when it brings settings of its own: a DNG written by
+Lightroom (Enhance / AI Denoise, `-Enhanced-NR.dng`) embeds the `crs:` settings of the moment it was
+written, and until 2026-11-15 those counted as an edit made here, so a black-and-white conversion or
+crop made in the catalog afterwards was dropped. Persistent import
 identity prevents reimport from duplicating virtual copies and collections. One undo step reverses
 catalog changes; any saved recovery archives remain available.
 
@@ -41,7 +47,7 @@ WITHOUT ROWID or virtual table produces an explicit error, handled as a warning 
 
 Develop settings reuse the existing XMP/preset mapper. Supported sliders, curves and supported
 mask structures remain editable, but this is approximate rendering: camera profiles, Adobe AI
-models, some masking/retouch fields and process-version algorithms are not reproduced. Unmapped
+models, some masking fields and process-version algorithms are not reproduced. Unmapped
 fields are reported. Lightroom's `ProcessVersion` is not mapped: newly imported photos are on
 LightCraft's latest rendering process, and photos already in the library keep theirs
 ([process-versions.md](process-versions.md)). When a recovery archive is saved, it retains source settings/history/snapshots
