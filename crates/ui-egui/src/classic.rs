@@ -16,7 +16,12 @@ use serde_json::{Value, json};
 use crate::LightcraftApp;
 use crate::state::{RightPanel, UiState, ViewMode};
 
+pub(crate) mod clipping;
+pub(crate) mod eyedropper;
 pub mod print;
+pub(crate) mod proof;
+pub(crate) mod slider;
+pub(crate) mod spot_outline;
 
 /// How the window is arranged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -358,6 +363,11 @@ pub struct ClassicState {
     /// The view and panel Print was opened over. Print is not a view of its own: it shows while these stand, and a
     /// command that asks for another view or panel leaves it ([`reconcile`]).
     pub print_over: Option<(ViewMode, RightPanel)>,
+    /// One side's clipping shown alone ([`clipping`]); both sides is `UiState::show_clipping`. Not saved, as that isn't.
+    #[serde(skip)]
+    pub clip_shadows: bool,
+    #[serde(skip)]
+    pub clip_highlights: bool,
 }
 
 /// The style the window is drawn in.
@@ -393,6 +403,7 @@ fn loupe(view: ViewMode) -> bool {
 /// In the Modern style it only names the module. In Classic it also settles what the two modules never show: an
 /// edit tool beside a grid (the Library gets its own panel back), and Develop without its panels.
 pub(crate) fn reconcile(app: &mut LightcraftApp) {
+    clipping::normalize(&mut app.ui);
     let ui = &mut app.ui;
     let was = ui.classic.module;
     // Print holds while the view and panel under it are as they were when it was opened
@@ -497,6 +508,7 @@ pub(crate) fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "module.print" => Module::Print,
         "view.interface" => return Some(interface(app, p)),
         "view.classicPanel" => return Some(panel_command(app, p)),
+        "view.clippingSide" => return Some(clipping::command(app, p)),
         "classicPrint.set" => return Some(print::set(app, p)),
         // from the menu or its key, outside Print: go there first, to see the page that would be written
         "classicPrint.export" if app.ui.classic.module != Module::Print && p.as_object().is_none_or(|o| o.is_empty()) => Module::Print,

@@ -1205,6 +1205,9 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::HdrRange;
     }
     // Clipping warnings (J): clipped highlights red, clipped shadows blue, on the photo itself
+    if let Some(one_side) = crate::classic::clipping::overlay(&app.ui) {
+        return one_side;
+    }
     if app.ui.show_clipping {
         return Overlay::ClipWarnings;
     }
@@ -1214,6 +1217,10 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
 fn general_cursor(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) {
     // A panel or overlay under the pointer keeps its own cursor.
     if !resp.dragged() && !resp.hovered() {
+        return;
+    }
+    // this fork: Classic's eyedropper in place of the crosshair
+    if crate::classic::eyedropper::pointer(app, ui) {
         return;
     }
     let cursor = match app.ui.tool.as_str() {

@@ -421,12 +421,15 @@ const THUMB_RING: f32 = 7.0;
 pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>) -> SliderOut {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (row, _) = ui.allocate_exact_size(vec2(w, t.slider_row_h), Sense::hover());
+    // this fork: Lightroom Classic's one-line rows in the Classic Develop column
+    let classic = crate::classic::slider::on(ui);
+    let (row, _) = ui.allocate_exact_size(vec2(w, if classic { crate::classic::slider::ROW_H } else { t.slider_row_h }), Sense::hover());
     let pad_l = 24.0;
     let pad_r = 22.0;
     let label_rect = Rect::from_min_size(pos2(row.left() + pad_l, row.top() + 4.0), vec2(w - pad_l - pad_r, 18.0));
     let track_rect = Rect::from_min_max(pos2(row.left() + pad_l, row.top() + 22.0), pos2(row.right() - pad_r, row.top() + 40.0));
     let value_rect = Rect::from_min_max(pos2(label_rect.right() - 64.0, label_rect.top()), label_rect.max);
+    let (label_rect, track_rect, value_rect) = if classic { crate::classic::slider::layout(row) } else { (label_rect, track_rect, value_rect) };
     let id = ui.scope_id().with(spec.id);
     let g = SliderLayout { spec, value, enabled, id, track_rect, value_rect };
     let resp = ui.interact(track_rect.expand2(vec2(8.0, 2.0)), id, if enabled { Sense::click_and_drag() } else { Sense::hover() });
@@ -485,9 +488,15 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     let hovered = resp.hovered() || resp.dragged();
     let text_c = if enabled { t.text_label } else { t.text_disabled };
     let p = ui.painter();
-    p.text(label_rect.left_center(), Align2::LEFT_CENTER, crate::i18n::tr(label_override.unwrap_or(spec.label)), t.font(12.5), text_c);
+    let name = crate::i18n::tr(label_override.unwrap_or(spec.label));
+    if classic {
+        p.text(label_rect.right_center(), Align2::RIGHT_CENTER, name, t.font(12.5), text_c);
+    } else {
+        p.text(label_rect.left_center(), Align2::LEFT_CENTER, name, t.font(12.5), text_c);
+    }
     if typing.is_none() {
-        p.text(label_rect.right_center(), Align2::RIGHT_CENTER, shown_value(spec, v), t.font(12.5), text_c);
+        let at = if classic { value_rect.right_center() } else { label_rect.right_center() };
+        p.text(at, Align2::RIGHT_CENTER, shown_value(spec, v), t.font(12.5), text_c);
         // the scrub pointer, as over Lightroom's values: a drag here changes the value
         if enabled && (value_resp.hovered() || scrub.is_some()) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
@@ -495,8 +504,6 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     }
     let ring = THUMB_RING;
     let tx = g.to_x(v);
-    paint_track(ui, track_rect, &spec.track, &t, tx, ring);
-    let p = ui.painter();
     let ring_c = if !enabled {
         t.text_disabled
     } else if hovered {
@@ -504,6 +511,17 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     } else {
         t.thumb
     };
+    if classic {
+        crate::classic::slider::ticks(ui.painter(), track_rect, t.divider);
+        paint_track(ui, track_rect, &spec.track, &t, tx, -2.0);
+        crate::classic::slider::thumb(ui.painter(), tx, track_rect.center().y, ring_c, t.chrome);
+        if hovered {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        return out;
+    }
+    paint_track(ui, track_rect, &spec.track, &t, tx, ring);
+    let p = ui.painter();
     p.circle_filled(pos2(tx, track_rect.center().y), ring, t.chrome);
     p.circle_stroke(pos2(tx, track_rect.center().y), ring, Stroke::new(2.0, ring_c));
     if hovered {

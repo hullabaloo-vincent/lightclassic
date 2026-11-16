@@ -285,6 +285,9 @@ pub enum Dialog {
         location: String,
         /// "Don't ask again (always merge into the open library)".
         dont_ask: bool,
+        /// "Replace edits made in LightCraft" (this fork): with Merge, photos already in the library take the
+        /// catalog's edits (`file.importLightroom {replaceEdits}`).
+        replace_edits: bool,
         /// `Session::library_generation` when the window opened.
         generation: u64,
     },

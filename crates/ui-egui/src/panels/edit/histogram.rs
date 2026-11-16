@@ -141,10 +141,15 @@ pub(crate) fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId)
     // both buttons keep clear of the panel's right edge, where its floating scroll bar widens when
     // hovered beside the sliders, the left one too so they stay symmetric (#1640)
     let [shadow_rect, highlight_rect] = crate::panels::histogram::clipping_rects(ui, plot);
+    // this fork: the Classic style draws its own corner buttons (`crate::classic::clipping::corners`)
+    let classic = crate::classic::clipping::corners(app, ui, [shadow_rect, highlight_rect], clipping);
     for (name, rect, label, clipped) in [
         ("shadows", shadow_rect, "Shadow clipping", clipping.map(|(lo, _)| lo > 0.003)),
         ("highlights", highlight_rect, "Highlight clipping", clipping.map(|(_, hi)| hi > 0.003)),
-    ] {
+    ]
+    .into_iter()
+    .filter(|_| !classic)
+    {
         let response = ui.interact(rect, ui.scope_id().with(("histogram-clipping", name)), Sense::click());
         register(ui, format!("histogram:{name}"), rect);
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), app.ui.show_clipping, crate::i18n::tr(label)));

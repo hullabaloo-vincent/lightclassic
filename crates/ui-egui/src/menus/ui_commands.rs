@@ -68,6 +68,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("classicPrint.set", "Set Print Layout", None, ""),
     ("view.interface", "Classic Interface", None, "View"),
     ("view.classicPanel", "Show Classic Panel", None, ""),
+    ("view.clippingSide", "Show Shadow or Highlight Clipping", None, ""),
     ("view.photoGrid", "Photo Grid", None, "View"),
     ("view.squareGrid", "Square Grid", None, "View"),
     // G: Photo Grid ↔ Square Grid (from other views: the photo grid)

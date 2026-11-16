@@ -11,7 +11,7 @@
 use super::{
     Align2, DevelopSettings, Icon, LightcraftApp, PhotoId, REL_TEMP, REL_TINT, Rect, RightPanel, Sense, Stroke, Tokens, WbMode, apply_slider_out,
     control, controls, curve_editor, divider, flyout_row, grading, hdr_row, histogram, json, k_to_rel, paint, point_color, pos2, profile_menu,
-    register, rel_to_k, shown_settings, slider, soft_proofing, sub_title, text_button, vec2,
+    register, rel_to_k, shown_settings, slider, sub_title, text_button, vec2,
 };
 use crate::classic::DevelopPanel;
 
@@ -22,8 +22,11 @@ fn margin(top: i8, bottom: i8) -> egui::Margin {
     egui::Margin { left: 24, right: 22, top, bottom }
 }
 
+/// Height of the Previous / Reset bar under the panels.
+const BAR_H: f32 = 40.0;
+
 /// The Develop column: one scroll of the histogram, the tools (with the open tool's own panel under them) and the
-/// develop panels.
+/// develop panels, with Classic's one-line sliders; Previous and Reset under it.
 pub(in crate::panels) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.fill(t.chrome).stroke(Stroke::new(1.0, t.divider)).show(ui, |ui| {
@@ -32,6 +35,20 @@ pub(in crate::panels) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             crate::panels::empty_message(ui, r, "No photo selected", "Select a photo to edit");
             return;
         };
+        let full = ui.max_rect();
+        let bar = Rect::from_min_max(pos2(full.left(), (full.bottom() - BAR_H).max(full.top())), full.max);
+        let mut column = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(full.min, pos2(full.right(), bar.top()))));
+        crate::classic::slider::rows(&mut column, |ui| panels(app, ui, id));
+        let mut under = ui.new_child(egui::UiBuilder::new().max_rect(bar));
+        bottom_bar(app, &mut under);
+        ui.allocate_rect(full, Sense::hover());
+    });
+}
+
+/// The scrolling part of [`show`].
+fn panels(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let t = Tokens::get(ui.ctx());
+    {
         egui::ScrollArea::vertical().id_salt("classic-develop").auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             histogram_panel(app, ui, id);
@@ -62,7 +79,52 @@ pub(in crate::panels) fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             ui.add_space(40.0);
         });
-    });
+    }
+}
+
+/// Previous (the settings of the photo shown before this one) and Reset, side by side under the panels.
+fn bottom_bar(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    let r = ui.max_rect();
+    ui.painter().hline(r.x_range(), r.top() + 0.5, Stroke::new(1.0, t.divider));
+    let gap = 8.0;
+    let w = ((r.width() - 2.0 * 14.0 - gap) / 2.0).max(40.0);
+    let at = |i: f32| Rect::from_min_size(pos2(r.left() + 14.0 + i * (w + gap), r.center().y - 12.0), vec2(w, 24.0));
+    for (i, (key, label, tip)) in
+        [("previous", "Previous", "Paste the settings of the photo shown before this one"), ("reset", "Reset", "Reset all edits (Cmd+Shift+R)")]
+            .into_iter()
+            .enumerate()
+    {
+        let mut b =
+            ui.new_child(egui::UiBuilder::new().max_rect(at(i as f32)).layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)));
+        let resp = bar_button(&mut b, key, label).on_hover_text(crate::i18n::tr(tip));
+        if resp.clicked() {
+            let command = if key == "previous" { "develop.pastePrevious" } else { "develop.reset" };
+            if let Err(e) = app.run(command, json!({})) {
+                app.toast(ui.ctx(), e);
+            }
+        }
+    }
+}
+
+/// A full-width button of the bottom bar (`button:{id}`).
+fn bar_button(ui: &mut egui::Ui, id: &str, label: &str) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let label = crate::i18n::tr(label);
+    let (r, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    register(ui, format!("button:{id}"), r);
+    let fill = if resp.is_pointer_button_down_on() {
+        t.pressed
+    } else if resp.hovered() {
+        t.hover
+    } else {
+        t.button
+    };
+    let p = ui.painter();
+    p.rect(r, 4.0, fill, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+    p.text(r.center(), Align2::CENTER_CENTER, label, t.semibold(12.0), t.text);
+    resp
 }
 
 fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, panel: DevelopPanel, d: &DevelopSettings, id: PhotoId, raw: bool) {
@@ -112,18 +174,20 @@ fn panel_header(ui: &mut egui::Ui, id: &str, title: &str, open: bool, switch: Op
     (resp, toggled)
 }
 
-/// The Histogram panel: its header folds it (`view.histogram`), and soft proofing sits under it as in the Edit panel.
+/// The Histogram panel: its header folds it (`view.histogram`). While soft proofing it is the Proof Histogram, with
+/// the proof's options under the plot ([`crate::classic::proof`]).
 fn histogram_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let open = app.ui.histogram;
-    let (resp, _) = panel_header(ui, "histogram", "Histogram", open, None);
+    let (resp, _) = panel_header(ui, "histogram", crate::classic::proof::histogram_title(app), open, None);
     if resp.clicked() {
         let _ = app.run("view.classicPanel", json!({"panel": "histogram"}));
     }
     if open {
         histogram(app, ui, id);
-    }
-    if app.ui.soft_proof {
-        soft_proofing(app, ui, id);
+        if app.ui.soft_proof {
+            crate::classic::proof::options(app, ui, id);
+            divider(ui);
+        }
     }
 }
 
@@ -172,41 +236,31 @@ fn notices(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
-/// Basic: treatment and Auto, the profile, white balance, tone and presence.
+/// Basic, as Lightroom Classic lays it out: Treatment (Color | Black & White, and HDR), the profile, WB with its
+/// eyedropper, Temp and Tint; Tone with its Auto; Presence. Reset is under the panels ([`bottom_bar`]).
 fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId, raw: bool) {
     let t = Tokens::get(ui.ctx());
-    // Auto / B&W / HDR and Reset: as the Edit panel's header row
-    let mut reset_clicked = false;
-    egui::Frame::NONE.inner_margin(margin(12, 8)).show(ui, |ui| {
+    let bw = crate::is_bw(d);
+    // Treatment : Color | Black & White, and HDR at the right
+    egui::Frame::NONE.inner_margin(margin(10, 6)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            if text_button(ui, "auto", crate::i18n::tr("Auto"), false).clicked() {
-                let _ = app.run("develop.auto", json!({}));
-                app.toast(ui.ctx(), crate::i18n::tr("Auto settings applied"));
+            field_label(ui, "Treatment");
+            if choice(ui, "treatment-color", "Color", !bw).clicked() && bw {
+                let _ = app.run("develop.treatment", json!({"bw": false}));
             }
-            if text_button(ui, "bw", crate::i18n::tr("B&W"), crate::is_bw(d)).clicked() {
-                let _ = app.run("develop.treatment", json!({}));
+            ui.label(egui::RichText::new("|").font(t.font(13.0)).color(t.text_disabled));
+            if choice(ui, "treatment-bw", "Black & White", bw).clicked() && !bw {
+                let _ = app.run("develop.treatment", json!({"bw": true}));
             }
-            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.hdr.enabled)
-                .on_hover_text(crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays"))
-                .clicked()
-            {
-                let _ = app.run("develop.hdr", json!({"enabled": !d.hdr.enabled}));
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if text_button(ui, "reset", crate::i18n::tr("Reset"), false).on_hover_text(crate::i18n::tr("Reset all edits (Cmd+Shift+R)")).clicked()
-                {
-                    reset_clicked = true;
-                }
-            });
         });
     });
-    // the profile row: as the Edit panel's
-    egui::Frame::NONE.inner_margin(margin(6, 10)).show(ui, |ui| {
+    // Profile : <name> and the profile browser: as the Edit panel's profile row
+    egui::Frame::NONE.inner_margin(margin(2, 6)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(13.0)).color(t.text_dim));
+            field_label(ui, "Profile");
             let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
-            let r = crate::widgets::dropdown(ui, "profile", crate::i18n::profile_label(&d.profile.id, name), t.font(15.0), t.text_label);
+            let r = crate::widgets::dropdown(ui, "profile", crate::i18n::profile_label(&d.profile.id, name), t.font(14.0), t.text);
             let below = r.rect.bottom();
             egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, d, below));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -228,10 +282,9 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
     });
     if d.profile.id != "lc.color" {
         control(app, ui, d, "profile.amount", true);
-        ui.add_space(6.0);
     }
     if app.session.source_info(id).local_tone.is_some() {
-        egui::Frame::NONE.inner_margin(margin(0, 10)).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(margin(2, 6)).show(ui, |ui| {
             let mut on = d.profile.camera_local_tone;
             let r = ui.checkbox(&mut on, crate::i18n::tr("Camera local tone mapping"));
             register(ui, "check:profile.cameraLocalTone", r.rect);
@@ -240,42 +293,33 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
             }
         });
     }
-    divider(ui);
-    // white balance: as the Edit panel's Color section
-    egui::Frame::NONE.inner_margin(margin(8, 2)).show(ui, |ui| {
+    group_line(ui);
+    // the eyedropper, then WB : <mode>: as the Edit panel's white balance
+    egui::Frame::NONE.inner_margin(margin(4, 2)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-            let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
-            egui::Popup::menu(&r).show(|ui| {
-                for m in WbMode::ALL {
-                    if m == WbMode::Custom {
-                        continue;
-                    }
-                    if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
-                        let mode = serde_json::to_value(m).unwrap_or_default();
-                        let _ = app.run("develop.wb", json!({"mode": mode}));
-                    }
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let active = app.ui.tool == "wbPicker";
+            if crate::classic::eyedropper::button(ui, active).clicked() {
+                if active {
+                    app.ui.tool.clear();
+                } else if let Err(e) = app.run("tool.wbPicker", json!({})) {
+                    app.toast(ui.ctx(), e);
                 }
-            });
+            }
+            field_label(ui, "WB");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let active = app.ui.tool == "wbPicker";
-                if crate::widgets::icon_button(
-                    ui,
-                    "wbPicker",
-                    Icon::Picker,
-                    vec2(28.0, 28.0),
-                    active,
-                    true,
-                    crate::i18n::tr("White Balance Selector (W)"),
-                )
-                .clicked()
-                {
-                    if active {
-                        app.ui.tool.clear();
-                    } else if let Err(e) = app.run("tool.wbPicker", json!({})) {
-                        app.toast(ui.ctx(), e);
+                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text);
+                egui::Popup::menu(&r).show(|ui| {
+                    for m in WbMode::ALL {
+                        if m == WbMode::Custom {
+                            continue;
+                        }
+                        if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                            let mode = serde_json::to_value(m).unwrap_or_default();
+                            let _ = app.run("develop.wb", json!({"mode": mode}));
+                        }
                     }
-                }
+                });
             });
         });
     });
@@ -288,9 +332,22 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
         let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
         apply_slider_out(app, &REL_TINT, out, |app, v| app.run("develop.set", json!({"control": "wb.tint", "value": v})));
     }
-    sub_title(ui, crate::i18n::tr("Tone"));
+    group_line(ui);
+    // Tone, with Auto (and HDR) at its right
+    let (auto, hdr) = tone_title(ui, d.hdr.enabled);
+    if auto {
+        let _ = app.run("develop.auto", json!({}));
+        app.toast(ui.ctx(), crate::i18n::tr("Auto settings applied"));
+    }
+    if hdr {
+        let _ = app.run("develop.hdr", json!({"enabled": !d.hdr.enabled}));
+    }
     hdr_row(app, ui, d, id);
-    for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
+    for c in ["light.exposure", "light.contrast"] {
+        control(app, ui, d, c, true);
+    }
+    inner_line(ui);
+    for c in ["light.highlights", "light.shadows", "light.whites", "light.blacks"] {
         control(app, ui, d, c, true);
     }
     if d.hdr.enabled {
@@ -305,14 +362,85 @@ fn basic(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: Ph
             }
         }
     }
-    sub_title(ui, crate::i18n::tr("Presence"));
-    for c in ["effects.texture", "effects.clarity", "effects.dehaze", "color.vibrance", "color.saturation"] {
+    group_line(ui);
+    group_title(ui, "Presence");
+    for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
         control(app, ui, d, c, true);
     }
-    // A pending numeric edit commits on blur before the explicit Reset takes precedence.
-    if reset_clicked {
-        let _ = app.run("develop.reset", json!({}));
+    inner_line(ui);
+    for c in ["color.vibrance", "color.saturation"] {
+        control(app, ui, d, c, true);
     }
+}
+
+/// A row's name, as Classic writes it ("Treatment :").
+fn field_label(ui: &mut egui::Ui, name: &str) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(format!("{} :", crate::i18n::tr(name))).font(t.font(13.0)).color(t.text_label));
+}
+
+/// One of a row's choices (Treatment's Color and Black & White, `button:{id}`): bright when chosen, dim otherwise.
+fn choice(ui: &mut egui::Ui, id: &str, label: &str, chosen: bool) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let label = crate::i18n::tr(label);
+    let color = if chosen { t.text } else { t.text_dim };
+    let font = if chosen { t.semibold(13.0) } else { t.font(13.0) };
+    let resp = ui.add(egui::Label::new(egui::RichText::new(label).font(font).color(color)).sense(Sense::click()));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, chosen, label));
+    register(ui, format!("button:{id}"), resp.rect);
+    if resp.hovered() && !chosen {
+        ui.painter().text(resp.rect.left_center(), Align2::LEFT_CENTER, label, font_of(&t, chosen), t.text_label);
+    }
+    resp
+}
+
+fn font_of(t: &Tokens, chosen: bool) -> egui::FontId {
+    if chosen { t.semibold(13.0) } else { t.font(13.0) }
+}
+
+/// A group's title (Presence).
+fn group_title(ui: &mut egui::Ui, title: &str) {
+    let t = Tokens::get(ui.ctx());
+    egui::Frame::NONE.inner_margin(margin(6, 4)).show(ui, |ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr(title)).font(t.semibold(13.0)).color(t.text_label));
+    });
+}
+
+/// Tone's title with Auto (`button:auto`) and HDR (`button:hdr`) at its right; whether each was clicked.
+fn tone_title(ui: &mut egui::Ui, hdr_on: bool) -> (bool, bool) {
+    let t = Tokens::get(ui.ctx());
+    let (mut auto, mut hdr) = (false, false);
+    egui::Frame::NONE.inner_margin(margin(6, 4)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Tone")).font(t.semibold(13.0)).color(t.text_label));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                auto = text_button(ui, "auto", crate::i18n::tr("Auto"), false).clicked();
+                hdr = text_button(ui, "hdr", crate::i18n::tr("HDR"), hdr_on)
+                    .on_hover_text(crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays"))
+                    .clicked();
+            });
+        });
+    });
+    (auto, hdr)
+}
+
+/// The line between two groups of a panel.
+fn group_line(ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, t.divider));
+    ui.add_space(2.0);
+}
+
+/// The shorter line between two runs of sliders inside a group (Contrast | Highlights, Dehaze | Vibrance).
+fn inner_line(ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(3.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline((r.left() + 18.0)..=(r.right() - 14.0), r.center().y, Stroke::new(1.0, t.divider.gamma_multiply(0.7)));
+    ui.add_space(3.0);
 }
 
 /// The row above the colour sliders: the targeted adjustment tools for `tools` (key, label), and `after` at its
